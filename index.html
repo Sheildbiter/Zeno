@@ -282,7 +282,7 @@ button:disabled{opacity:.5}
 <script src="assets/webllm-0.2.82.iife.js"></script>
 <script>
 /* ============================================================
-   Zeno Brain v0.10
+   Zeno Brain v0.11.1
    Working core carried over from v0.1.3 (WebLLM 0.2.82, manual
    initialization). v0.4 added memory +
    service worker. v0.5 adds, without changing that core:
@@ -3283,7 +3283,7 @@ function renderLoyalBtn(){
 function updateStorageUI(){
   const durable = !!window.ZenoRuntime.durableStorage;
   const summary = $("storageSummary");
-  if (summary) summary.innerHTML = "<strong>Brain v0.10</strong> · routed local inference + " +
+  if (summary) summary.innerHTML = "<strong>Brain v0.11.1</strong> · routed local inference + " +
     (durable ? "durable local memory" : "session memory") + " + emotion engine";
   const note = $("memoryStorageNote");
   if (note) note.textContent = durable
