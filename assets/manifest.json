@@ -1,0 +1,21 @@
+{
+  "background_color": "#071018",
+  "display": "standalone",
+  "name": "Zeno Brain v0.10",
+  "short_name": "Zeno",
+  "start_url": "../",
+  "scope": "../",
+  "theme_color": "#071018",
+  "icons": [
+    {
+      "src": "zeno-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "zeno-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
