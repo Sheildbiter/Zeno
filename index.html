@@ -279,6 +279,15 @@ button:disabled{opacity:.5}
   </div>
 </section>
 </main>
+<script>
+/* Zeno signature voice — Twenty (picked 2026-10-01, "for now").
+   Fixed recording: "Hey, I'm Zeno. Your dragon in the machine."
+   Plays instead of device TTS whenever Zeno's reply is an identity/intro
+   line. Everything else keeps using the system voice automatically. */
+window.ZenoSignatureVoiceClips = [
+  { match: /i'?m zeno|i am zeno|name'?s zeno|this is zeno/i, src: "assets/zeno-voice-twenty.mp3" }
+];
+</script>
 <script src="assets/webllm-0.2.82.iife.js"></script>
 <script>
 /* ============================================================
