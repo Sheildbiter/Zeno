@@ -281,11 +281,18 @@ button:disabled{opacity:.5}
 </main>
 <script>
 /* Zeno signature voice — Twenty (picked 2026-10-01, "for now").
-   Fixed recording: "Hey, I'm Zeno. Your dragon in the machine."
-   Plays instead of device TTS whenever Zeno's reply is an identity/intro
-   line. Everything else keeps using the system voice automatically. */
+   Fixed recordings in Twenty's voice (avocado_v2:Twenty). Each plays instead
+   of device TTS when Zeno's reply matches its pattern. Patterns are anchored
+   to short, low-information replies so a canned line never eats a real answer;
+   everything freeform keeps using the system voice automatically. */
 window.ZenoSignatureVoiceClips = [
-  { match: /i'?m zeno|i am zeno|name'?s zeno|this is zeno/i, src: "assets/zeno-voice-twenty.mp3" }
+  { match: /^(?=.{0,70}$)[\s\S]*?\bzeno\b/i, src: "assets/zeno-voice-twenty.mp3" },
+  { match: /^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))[!.,\s]*$/i, src: "assets/zeno-voice-twenty-greeting.mp3" },
+  { match: /^(thanks|thank you)[!.]?$/i, src: "assets/zeno-voice-twenty-thanks.mp3" },
+  { match: /^(bye|goodbye|see you|see ya)[!.]?$/i, src: "assets/zeno-voice-twenty-bye.mp3" },
+  { match: /^(yes|yeah|yep|ok|okay|sure|got it)[!.]?$/i, src: "assets/zeno-voice-twenty-ack.mp3" },
+  { match: /^(done|all done)[!.]?$/i, src: "assets/zeno-voice-twenty-done.mp3" },
+  { match: /^(?=.{0,120}$)[\s\S]*?\bi (don't|do not) know\b/i, src: "assets/zeno-voice-twenty-dontknow.mp3" },
 ];
 </script>
 <script src="assets/webllm-0.2.82.iife.js"></script>
