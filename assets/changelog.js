@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.11.1";
+const ZENO_VERSION = "0.12";
 
 const ZENO_CHANGELOG = [
   {
@@ -171,6 +171,27 @@ const ZENO_CHANGELOG = [
     abilities: [
       "Load new versions fresh on every update (with a tap-to-reload banner)",
       "Re-wake my own brain automatically if its word-reader glitches"
+    ]
+  },
+  {
+    version: "0.12",
+    date: "2026-10-06",
+    headline: "Eyes, builder, Thunder talk, and an honest pair of hands",
+    whatsNew: [
+      "I can open my camera eyes now and save snapshots \u2014 but honest label first: my brain still can't see what's in the pictures (no vision model in WebLLM 0.2.82). Snapshots save to my photo roll and my memory for you to look at.",
+      "The Builder makes things: images through /imagine, real Minecraft behavior packs (.mcpack files you can import in Bedrock), and honest notes when video needs the Colab pipeline instead of this page.",
+      "Conversation mode: tap \uD83D\uDD01 Conversation and we talk back and forth \u2014 I listen, answer out loud, then listen again \u2014 until you tap stop. Push-to-talk still works exactly as before.",
+      "I can translate Thunder for you now: describe what he did \u2014 a chirp, a purr, ears flat, tail lashing \u2014 and I'll read it from his design notes. My best reading, never a certified translation.",
+      "Hands get an honest status panel instead of a fake: this web page can't operate your iPad, and I won't pretend it can. Real hands arrive with the Lair.",
+      "Memory now says it plainly: I keep everything you tell me until you tell me to forget \u2014 say \u201cforget \u2026\u201d anytime."
+    ],
+    abilities: [
+      "Camera eyes with snapshots (photo roll + memory; no image understanding yet)",
+      "Builder: images, Minecraft .mcpack files, honest video notes",
+      "Continuous voice conversation mode with stop control",
+      "Thunder vocalization and body-language translation",
+      "Honest hands status (Lair-bound, not faked)",
+      "Memory that persists until you say forget, with export/import"
     ]
   }
 ];
