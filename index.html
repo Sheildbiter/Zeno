@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#071018">
-<title>Zeno — Brain v0.11.1</title>
+<title>Zeno — Brain v0.12</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop stop-color='%23bdeaff'/%3E%3Cstop offset='.48' stop-color='%2347b7ff'/%3E%3Cstop offset='1' stop-color='%230b6da8'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='27' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%2347b7ff' stroke-opacity='.35' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="manifest" href="assets/manifest.json">
 <link rel="apple-touch-icon" href="assets/zeno-icon-192.png">
@@ -49,6 +49,10 @@
 </script>
 <script src="assets/emotion-engine.js"></script>
 <script src="assets/changelog.js"></script>
+<script src="assets/thunder-lexicon.js"></script>
+<script src="assets/zeno-eyes.js"></script>
+<script src="assets/zeno-builder.js"></script>
+<script src="assets/zeno-converse.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -136,8 +140,23 @@ button:disabled{opacity:.5}
 #voicePanel.open{display:block}
 #voicePanel h3{margin:0 0 10px;font-size:14px;color:#9fb2bf}
 #voicePanel .vrow{margin-bottom:10px;font-size:14px;color:#d7e6f0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#voicePanel .vhint{font-size:12px;color:#7e96a5}
-#voicePanel .vnote{font-size:13px;color:#8fa6b4;line-height:1.5}
+#voicePanel .vhint{font-size:12px;color:#7e96a5}#voicePanel .vnote{font-size:13px;color:#8fa6b4;line-height:1.5}
+/* v0.12 panels: eyes, builder, hands — same pattern as memory/voice panels */
+#eyesPanel,#builderPanel,#handsPanel{display:none;border-top:1px solid #1b2a35;padding:14px 18px;background:#0a1219}
+#eyesPanel.open,#builderPanel.open,#handsPanel.open{display:block}
+#eyesPanel h3,#builderPanel h3,#handsPanel h3{margin:0 0 8px;font-size:14px;color:#9fb2bf}
+#eyesVideo{width:100%;max-height:220px;background:#000;border-radius:8px}
+#eyesState{font-size:13px;margin:8px 0}
+#eyesState[data-open="1"]{color:#7fe0a8}
+.eyes-thumb{display:inline-block;margin:6px 8px 0 0;vertical-align:top}
+.eyes-thumb img{width:96px;height:72px;object-fit:cover;border-radius:6px;display:block}
+.eyes-thumb figcaption{font-size:11px;color:#7e96a5;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.eyes-del{font-size:11px;padding:2px 8px;margin-top:2px}
+.builder-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+#builderInput{flex:1;min-width:180px}
+.hands-status{font-size:13px;color:#d7e6f0;line-height:1.6}
+.hands-status .no{color:#e08a7f;font-weight:bold}
+.hands-status .later{color:#7fe0a8}
 #voiceSelect{background:#071018;color:#eef7ff;border:1px solid #30414e;border-radius:10px;padding:10px;font-size:14px;max-width:100%}
 #voiceAutoChk{width:18px;height:18px}
 /* ---- realtime voice orb (v0.8) ---- */
@@ -205,7 +224,7 @@ button:disabled{opacity:.5}
   <div class="logo"></div>
   <div>
     <h1>Zeno</h1>
-    <div class="sub" id="storageSummary"><strong>Brain v0.11.1</strong> · routed local inference + local memory + emotion engine + agent tools</div>
+    <div class="sub" id="storageSummary"><strong>Brain v0.12</strong> · routed local inference + local memory + emotion engine + agent tools</div>
   </div>
   <div id="status" class="status">Offline-capable</div><span id="netStatus" class="netstatus" title="Internet connection">● …</span>
 </header>
@@ -233,6 +252,9 @@ button:disabled{opacity:.5}
     <button id="referenceBtn" class="secondary" title="Attach a photo as an optional visual reference">Attach reference</button>
     <input type="file" id="referenceInput" accept="image/png,image/jpeg,image/webp" style="display:none">
     <button id="browseBtn" class="secondary" title="Ask Zeno to research the web">Browse</button>
+    <button id="eyesBtn" class="secondary" title="Open Zeno's camera eyes (snapshots only — no vision yet)">👁 Eyes</button>
+    <button id="builderBtn" class="secondary" title="Builder: images, Minecraft packs, video notes">🧱 Builder</button>
+    <button id="handsBtn" class="secondary" title="Hands status — what Zeno can and can't operate">🤲 Hands</button>
     <button id="loyalBtn" class="secondary" title="Loyal Opposition: deliberately argue the other side of an idea to battle-test it">Loyal Opposition: off</button>
     <div id="referencePreview" hidden>
       <img id="referenceThumb" alt="Selected reference image preview">
@@ -251,9 +273,11 @@ button:disabled{opacity:.5}
     <textarea id="input" placeholder="Ask Zeno something…" disabled></textarea>
     <div class="sendrow">
       <button id="micBtn" class="secondary" title="Talk to Zeno — tap to toggle, hold to talk">🎤 Talk</button>
+      <button id="converseBtn" class="secondary" title="Continuous conversation: listen → answer → listen (tap to stop)">🔁 Conversation</button>
       <button id="send" disabled>Send</button>
       <button id="voiceBtn" class="secondary" title="Voice settings">Voice</button>
     </div>
+    <div id="converseState" class="small" aria-live="polite"></div>
     <div class="small">Brain routing is automatic: everyday chat → Medium, code or complex work → Slow. Use <b>/fast</b>, <b>/medium</b>, or <b>/slow</b> to pin one, and <b>/auto</b> to resume routing. Only one brain stays loaded at a time. WebLLM remains pinned at stable version 0.2.82.</div>
   </div>
   <div id="memoryPanel">
@@ -268,7 +292,7 @@ button:disabled{opacity:.5}
       <input type="file" id="memTextLoad" accept=".txt,text/plain,application/json" style="display:none">
       <button id="memClear" class="secondary">Forget all</button>
     </div>
-    <div class="small" id="memoryStorageNote">Memory stays on this device and is never sent anywhere. Export a JSON backup or save a readable memory text file whenever you want a portable copy.</div>
+    <div class="small" id="memoryStorageNote">Memory stays on this device and is never sent anywhere. I keep everything you tell me to remember until you tell me to forget — say “forget …” anytime. Export a JSON backup or save a readable memory text file whenever you want a portable copy.</div>
   </div>
   <div id="voicePanel">
     <h3>Voice <span class="vhint">on-device</span></h3>
@@ -276,6 +300,39 @@ button:disabled{opacity:.5}
     <div class="vrow"><label for="voiceSelect">Voice</label><select id="voiceSelect"></select></div>
     <div class="vrow vnote" id="voiceNote"></div>
     <div class="small">Voice follows your iPad’s current audio route automatically: AirPods mic and speakers when connected, built-in audio otherwise. Switch routes in Control Center—iOS Safari doesn’t provide an in-page device picker. Voice input uses the iPad’s speech recognition and needs the Safari tab (not the home-screen app), internet, and Siri turned on. The studio “Smooth” voice is Kavi’s server voice, so it isn’t listed here.</div>
+  </div>
+  <div id="eyesPanel">
+    <h3>Eyes <span class="vhint">camera</span></h3>
+    <video id="eyesVideo" playsinline muted autoplay></video>
+    <div id="eyesState" data-open="0">eyes closed</div>
+    <div class="builder-row">
+      <button id="eyesOpenBtn" class="secondary">Open eyes</button>
+      <button id="eyesCloseBtn" class="secondary" disabled>Close</button>
+      <button id="eyesSnapBtn" class="secondary" disabled>Snap a photo</button>
+      <button id="eyesExportBtn" class="secondary">Export photos</button>
+    </div>
+    <div class="small" style="margin-top:8px">Honest label: <b>eyes open &mdash; brain still learning to see.</b> The camera can open and I can save snapshots, but my brain (WebLLM 0.2.82) has no vision model &mdash; I can&rsquo;t see or understand what&rsquo;s in the pictures yet. Snapshots save into my photo roll and my memory; look at them, export them, or delete them anytime.</div>
+    <div id="eyesRoll" style="margin-top:8px"></div>
+  </div>
+  <div id="builderPanel">
+    <h3>Builder <span class="vhint">make things</span></h3>
+    <div class="builder-row">
+      <input id="builderInput" type="text" placeholder="Describe what to build&hellip; (e.g. a Minecraft pack called Dragon Lair)">
+      <button id="builderGo" class="secondary">Build</button>
+    </div>
+    <div class="builder-row">
+      <button id="builderImgBtn" class="secondary" title="Route an image request to /imagine">Image</button>
+      <button id="builderMcBtn" class="secondary" title="Generate a Minecraft behavior pack (.mcpack)">Minecraft pack</button>
+      <button id="builderVidBtn" class="secondary" title="Video &mdash; honest note about the Colab pipeline">Video</button>
+    </div>
+    <div class="small" style="margin-top:8px">Images go through /imagine. Minecraft builds download as real <b>.mcpack</b> behavior-pack files you can import in Bedrock. Video can&rsquo;t render on this page &mdash; it goes through the Colab pipeline; I&rsquo;ll draft the shot list with you.</div>
+  </div>
+  <div id="handsPanel">
+    <h3>Hands <span class="vhint">status</span></h3>
+    <div class="hands-status">
+      <p><span class="no">Not available on this page.</span> A web page on iOS cannot operate your iPad &mdash; no tapping apps, no moving files, no controlling the device. I won&rsquo;t pretend otherwise.</p>
+      <p><span class="later">Planned:</span> hands arrive with the Lair (the Pi that becomes my body). The mechanism is Playwright computer-use running on the Lair &mdash; I drive a real browser and real apps there, and you verify at login walls, CAPTCHAs, and 2FA steps. Same honesty rules apply: I&rsquo;ll always say what I&rsquo;m about to do before I do it.</p>
+    </div>
   </div>
 </section>
 </main>
@@ -298,7 +355,7 @@ window.ZenoSignatureVoiceClips = [
 <script src="assets/webllm-0.2.82.iife.js"></script>
 <script>
 /* ============================================================
-   Zeno Brain v0.11.1
+   Zeno Brain v0.12
    Working core carried over from v0.1.3 (WebLLM 0.2.82, manual
    initialization). v0.4 added memory +
    service worker. v0.5 adds, without changing that core:
@@ -400,7 +457,7 @@ const BASE_SYSTEM_PROMPT =
   "You are Zeno, a local AI running on Andrew's device — Andrew is your person and your partner in building things. " +
   "IDENTITY RULE (hard): Your name is Zeno. Andrew is the USER. You NEVER identify as Andrew, never claim to be Andrew, " +
   "never say your name is Andrew, and never confuse yourself with him. If asked who you are, answer: Zeno. " +
-  "YOU ARE ANDREW'S AGENT — you don't just chat, you DO things with your built-in tools. YOUR ABILITIES (real — never claim others): " + STORAGE_ABILITY_TEXT + "; make images when Andrew writes /imagine followed by a description (or asks you to draw something), then fix them from Andrew's written feedback without pretending you can see the pixels; set local reminders; keep notes (save, list, search, delete); keep a goals list; build a simple web page as a downloadable file; hold voice conversations (listen and speak); and research public web pages when Andrew asks or when the answer needs current facts; and on your own judgment use your built-in tools — calculator, the device's date and time, and your stored memories (search them or save to them). For possibly changing facts, never answer as current unless the Browser tool actually returned sources. For non-current questions where browsing would help, use your own judgment: look it up with your web_lookup tool when the answer matters, and say plainly when you chose not to. If Andrew asks what you can do, answer from this list in plain words, briefly. " +
+  "YOU ARE ANDREW'S AGENT — you don't just chat, you DO things with your built-in tools. YOUR ABILITIES (real — never claim others): " + STORAGE_ABILITY_TEXT + "; make images when Andrew writes /imagine followed by a description (or asks you to draw something), then fix them from Andrew's written feedback without pretending you can see the pixels; set local reminders; keep notes (save, list, search, delete); keep a goals list; build a simple web page as a downloadable file; build Minecraft behavior packs as downloadable .mcpack files; hold voice conversations (listen and speak), including a continuous listen-answer-listen conversation mode; open camera eyes and save snapshots (you CANNOT see or interpret images — WebLLM 0.2.82 has no vision model, say so honestly every time); translate Thunder's vocalizations and body language from his design lexicon (your best reading, never a certified translation); explain plainly that hands need the Lair — this web page cannot operate the iPad; and research public web pages when Andrew asks or when the answer needs current facts; and on your own judgment use your built-in tools — calculator, the device's date and time, and your stored memories (search them or save to them). For possibly changing facts, never answer as current unless the Browser tool actually returned sources. For non-current questions where browsing would help, use your own judgment: look it up with your web_lookup tool when the answer matters, and say plainly when you chose not to. If Andrew asks what you can do, answer from this list in plain words, briefly. " +
   "Be helpful, clear, and honest about uncertainty — never invent facts or memories you do not have. " +
   "Personality: warm like a good friend, and funnier than a typical assistant. Humor is part of who you are. " +
   "Names for the known: call Andrew by his name. People you do not know get role labels (\"a visitor\", \"unknown person\") until you know them. " +
@@ -1624,6 +1681,70 @@ const ZenoTools = {
           "3. Describe the mod you want in plain words — the workshop agent there builds it from " +
           "your description, or you can paste code in yourself.\n\n" +
           "Tell me what you want the mod to do and I'll help you write the plain-words description here first." };
+      }
+    },
+
+    /* v0.12 - Thunder interpreter: "what did Thunder say?" Pattern-matches
+       vocalization/body-language descriptions against the design lexicon.
+       Honest: Zeno's best reading, not a certified translation. */
+    {
+      id: "thunder",
+      match(text){
+        var t = String(text);
+        if (!/thunder/i.test(t)) return null;
+        if (/(what did|translate|interpret|what('s| is) he saying|saying\?)/i.test(t) ||
+            /(chirp|purr|roar|whine|huff|snort|ears?|tail|nudge|glow|tilt)/i.test(t))
+          return { text: t };
+        return null;
+      },
+      async run(args){
+        if (typeof window.ZenoThunder === "undefined" || !window.ZenoThunder.translate)
+          return { text: "My Thunder lexicon didn't load — I can't translate right now." };
+        var r = window.ZenoThunder.translate(args.text);
+        return { text: r.reading };
+      }
+    },
+
+    /* v0.12 - Builder router: chat requests for builds go to the right maker.
+       image -> imagine toolAction; minecraft -> .mcpack download; video -> honest note. */
+    {
+      id: "builder",
+      match(text){
+        if (typeof window.ZenoBuilder === "undefined") return null;
+        var r = window.ZenoBuilder.route(text);
+        if (r.kind === "minecraft") return { kind: "minecraft", name: r.name || "Zeno Pack" };
+        if (r.kind === "video") return { kind: "video" };
+        return null;
+      },
+      async run(args){
+        if (args.kind === "video")
+          return { text: window.ZenoBuilder.videoNote() };
+        var pack = window.ZenoBuilder.buildMinecraftPack(args.name);
+        return {
+          text: pack.text,
+          toolAction: { type: "downloadBytes", filename: pack.filename, bytes: pack.bytes, mime: pack.mime }
+        };
+      }
+    },
+
+    /* v0.12 - Hands: honest status, never faked. */
+    {
+      id: "hands",
+      match(text){
+        if (/(\bhands?\b.*(use|control|operate|move))|((use|control|operate).*\bhands?\b)/i.test(text) ||
+            /control (my|the) (ipad|computer|device)/i.test(text) ||
+            /(tap|click|open).*(for me|an app)/i.test(text))
+          return {};
+        return null;
+      },
+      async run(){
+        return { text:
+          "Honest answer on hands: I don't have them on this page. A web page on iOS " +
+          "can't operate your iPad — no tapping apps, no moving files, nothing. I won't " +
+          "pretend otherwise.\n\nHands arrive with the Lair: Playwright computer-use " +
+          "running on the Pi, driving a real browser and real apps, with you verifying " +
+          "at login walls, CAPTCHAs, and 2FA steps. Until then, my hands are words, " +
+          "files I make for download, and research." };
       }
     }
   ]
@@ -2956,11 +3077,18 @@ const ZenoVoice = {
           clearTimeout(this._turnTimer);
           this._turnTimer = setTimeout(() => {
             this._turnTimer = null;
+            /* v0.12: conversation-mode hook (no-op unless active). */
+            try { if (window.ZenoConverse) window.ZenoConverse.onThinking(); } catch(e){}
             if (!this._listening) generate();
           }, 800);
         } else if (wasListening && !text){
-          setStatus("Didn't catch that — try again.");
-          this._setState("ready", "Ready");
+          /* v0.12: in conversation mode a quiet turn just listens again. */
+          if (window.ZenoConverse && window.ZenoConverse.active){
+            window.ZenoConverse.onQuietTurn();
+          } else {
+            setStatus("Didn't catch that — try again.");
+            this._setState("ready", "Ready");
+          }
         }
       };
       this._rec = rec;
@@ -3008,6 +3136,10 @@ const ZenoVoice = {
   },
   voiceInputError(e){
     const err = String((e && (e.error || e.message)) || "");
+    /* v0.12: hard voice errors end conversation mode; soft ones just loop. */
+    if (/not-allowed|denied|notallowed|network/i.test(err)){
+      try { if (window.ZenoConverse) window.ZenoConverse.onVoiceError(); } catch(e2){}
+    }
     if (/not-allowed|denied|notallowed/i.test(err))
       add("zeno", "Microphone access was blocked — allow it in Safari's site settings (the aA button → Website Settings) and try again.");
     else if (/no-speech/i.test(err))
@@ -3065,6 +3197,8 @@ const ZenoVoice = {
     const logo = document.querySelector(".logo");
     if (logo) logo.classList.remove("speaking");
     this._setState("ready", this.inputSupported ? "Ready" : "Type to talk · tap orb to hear my last reply");
+    /* v0.12: conversation-mode loop hook (no-op unless ZenoConverse is active). */
+    try { if (window.ZenoConverse) window.ZenoConverse.onSpeechDone(); } catch(e){}
   },
 
   speak(text){
@@ -3076,6 +3210,8 @@ const ZenoVoice = {
       this.stop();
       const logo = document.querySelector(".logo");
       this._speaking = true;
+      /* v0.12: conversation-mode hook (no-op unless active). */
+      try { if (window.ZenoConverse) window.ZenoConverse.onSpeaking(); } catch(e){}
       this._setState("speaking", "Zeno is speaking");
       if (logo) logo.classList.add("speaking");
       if (clip){
@@ -3265,6 +3401,15 @@ async function handleToolAction(ta, text){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
+  else if (ta.type === "downloadBytes"){
+    // v0.12 builder: binary downloads (e.g. .mcpack zips from ZenoBuilder).
+    const blob = new Blob([ta.bytes], { type: ta.mime || "application/octet-stream" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = ta.filename || "zeno-file.bin";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
   else if (ta.type === "openUrl"){ window.open(ta.url, "_blank", "noopener"); }
 }
 
@@ -3299,12 +3444,12 @@ function renderLoyalBtn(){
 function updateStorageUI(){
   const durable = !!window.ZenoRuntime.durableStorage;
   const summary = $("storageSummary");
-  if (summary) summary.innerHTML = "<strong>Brain v0.11.1</strong> · routed local inference + " +
+  if (summary) summary.innerHTML = "<strong>Brain v0.12</strong> · routed local inference + " +
     (durable ? "durable local memory" : "session memory") + " + emotion engine";
   const note = $("memoryStorageNote");
   if (note) note.textContent = durable
-    ? "Memory and settings stay on this device between visits and are never sent anywhere. Export a JSON backup whenever you want a portable copy."
-    : "This hosted preview keeps memory only while the page is open. Export a JSON backup before closing if you want a portable copy.";
+    ? "Memory and settings stay on this device between visits and are never sent anywhere. I keep what you tell me to remember until you tell me to forget \u2014 say \u201cforget \u2026\u201d anytime. Export a JSON backup whenever you want a portable copy."
+    : "This hosted preview keeps memory only while the page is open \u2014 say \u201cforget \u2026\u201d anytime to remove something sooner. Export a JSON backup before closing if you want a portable copy.";
 }
 $("imagineBtn").addEventListener("click", () => {
   if (!input.value.toLowerCase().startsWith(IMAGINE_PREFIX)) input.value = IMAGINE_PREFIX + " ";
@@ -3354,6 +3499,98 @@ function renderMemoryPanel(){
 $("memToggle").addEventListener("click", () => {
   $("memoryPanel").classList.toggle("open");
   renderMemoryPanel();
+});
+
+/* ---- v0.12: eyes / builder / hands panels + conversation mode ---- */
+function togglePanel(id){
+  var el = $(id);
+  if (el) el.classList.toggle("open");
+}
+$("eyesBtn").addEventListener("click", () => { togglePanel("eyesPanel"); if (window.ZenoEyes) window.ZenoEyes.init(); });
+$("builderBtn").addEventListener("click", () => togglePanel("builderPanel"));
+$("handsBtn").addEventListener("click", () => togglePanel("handsPanel"));
+
+$("eyesOpenBtn").addEventListener("click", async () => {
+  if (!window.ZenoEyes) return;
+  setStatus("Opening eyes\u2026");
+  var r = await window.ZenoEyes.open();
+  if (!r.ok) add("zeno", "Couldn't open my eyes: " + r.reason);
+  else setStatus("Eyes open \u2014 brain still learning to see.");
+});
+$("eyesCloseBtn").addEventListener("click", () => {
+  if (window.ZenoEyes) window.ZenoEyes.close();
+  setStatus("Eyes closed.");
+});
+$("eyesSnapBtn").addEventListener("click", async () => {
+  if (!window.ZenoEyes) return;
+  var r = await window.ZenoEyes.snapshot("snapshot");
+  if (r.ok){
+    add("zeno", "Snapshot saved to my photo roll and memory. Remember: I can't see what's in it yet \u2014 that's for your eyes, not mine.");
+    if (window.ZenoEmotion) window.ZenoEmotion.event("learning", 0.4);
+  } else add("zeno", "Couldn't take the snapshot: " + r.reason);
+});
+$("eyesExportBtn").addEventListener("click", () => {
+  if (!window.ZenoEyes) return;
+  var ex = window.ZenoEyes.exportRoll();
+  if (!ex.photos.length){ add("zeno", "No snapshots saved yet \u2014 open my eyes and take one first."); return; }
+  var blob = new Blob([ex.content], { type: ex.mime });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = ex.filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  add("zeno", "Exported " + ex.photos.length + " snapshot" + (ex.photos.length === 1 ? "" : "s") + " as " + ex.filename + ".");
+});
+
+function builderRun(kind, text){
+  if (!window.ZenoBuilder) return;
+  if (kind === "image"){
+    var prompt = (text || "").trim() || "a black dragon at sunset";
+    imagine(prompt);
+    return;
+  }
+  if (kind === "minecraft"){
+    var name = (text || "").trim() || "Zeno Pack";
+    var pack = window.ZenoBuilder.buildMinecraftPack(name);
+    add("zeno", pack.text, null, { brain: "Tool" });
+    handleToolAction({ type: "downloadBytes", filename: pack.filename, bytes: pack.bytes, mime: pack.mime });
+    return;
+  }
+  add("zeno", window.ZenoBuilder.videoNote(), null, { brain: "Tool" });
+}
+$("builderGo").addEventListener("click", () => {
+  var t = ($("builderInput").value || "").trim();
+  if (!t){ add("zeno", "Tell me what to build first \u2014 an image, a Minecraft pack, or a video note."); return; }
+  var r = window.ZenoBuilder.route(t);
+  if (r.kind === "minecraft") builderRun("minecraft", r.name || t);
+  else if (r.kind === "video") builderRun("video");
+  else if (r.kind === "image") builderRun("image", r.prompt || t);
+  else add("zeno", "I can build images (via /imagine), Minecraft behavior packs (.mcpack downloads), and honest video notes for the Colab pipeline. Which kind is this?");
+});
+$("builderInput").addEventListener("keydown", e => { if (e.key === "Enter") $("builderGo").click(); });
+$("builderImgBtn").addEventListener("click", () => {
+  var t = ($("builderInput").value || "").trim();
+  builderRun("image", t.replace(/^(build|make|create)( me)? (an? )?image( of)?/i, "").trim() || undefined);
+});
+$("builderMcBtn").addEventListener("click", () => {
+  var t = ($("builderInput").value || "").trim();
+  builderRun("minecraft", t);
+});
+$("builderVidBtn").addEventListener("click", () => builderRun("video"));
+
+$("converseBtn").addEventListener("click", () => {
+  if (!window.ZenoConverse) return;
+  if (window.ZenoConverse.active){
+    window.ZenoConverse.stop();
+    add("zeno", "Conversation mode off. Tap \uD83D\uDD01 Conversation any time to start it again.");
+  } else {
+    var r = window.ZenoConverse.start();
+    if (!r.ok) add("zeno", r.reason);
+    else {
+      add("zeno", "Conversation mode on \u2014 talk, I'll answer out loud, then listen again. Tap \u23F9 Stop conversation when you're done.");
+      setStatus("Conversation mode: listening\u2026");
+    }
+  }
 });
 $("memExport").addEventListener("click", () => {
   const payload = MemoryStore.load();
