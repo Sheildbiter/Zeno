@@ -97,9 +97,10 @@
 
     _saveRoll(arr){
       var store = this._store();
-      if (!store) return;
+      if (!store) return false;
       try { store.setItem(PHOTO_KEY, JSON.stringify(arr.slice(0, PHOTO_CAP))); }
-      catch(e){}
+      catch(e){ return false; } // quota exceeded or storage unavailable
+      return true;
     },
 
     async snapshot(label){
@@ -110,12 +111,16 @@
         return { ok: false, reason: "The camera isn't delivering frames yet — give it a second." };
       var canvas = (typeof document !== "undefined") ? document.createElement("canvas") : null;
       if (!canvas) return { ok: false, reason: "No canvas available to capture the frame." };
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Downscale big camera frames (12MP+ blows the ~5MB localStorage quota
+      // in a handful of shots). 1280px on the long side is plenty for review.
+      var w = video.videoWidth, h = video.videoHeight;
+      var scale = Math.min(1, 1280 / Math.max(w, h));
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
       var ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       var dataUrl;
-      try { dataUrl = canvas.toDataURL("image/jpeg", 0.85); }
+      try { dataUrl = canvas.toDataURL("image/jpeg", 0.82); }
       catch(e){ return { ok: false, reason: "Couldn't encode the snapshot." }; }
       var photo = {
         id: "p" + Date.now().toString(36),
@@ -125,7 +130,17 @@
       };
       var roll = this.roll();
       roll.unshift(photo);
-      this._saveRoll(roll);
+      // Fail CLOSED: never report a saved snapshot that didn't persist.
+      // Storage can silently refuse (quota), so verify the round-trip.
+      var persisted = this._saveRoll(roll) &&
+        this.roll().some(function(p){ return p && p.id === photo.id; });
+      if (!persisted){
+        this._lastPhoto = null;
+        this._render();
+        return { ok: false,
+          reason: "The iPad's storage is full — delete some snapshots from the " +
+                  "photo roll, then try again. Nothing was saved." };
+      }
       this._lastPhoto = photo;
       try {
         var MS = null;
