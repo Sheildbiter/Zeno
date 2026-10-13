@@ -952,7 +952,11 @@ const VARIETY_RETRY_NOTE =
 // re-wake the brain instead of showing a dead-end error.
 function isTokenizerGlitch(err){
   const m = String((err && err.message) || err || "");
-  return /deleted object/i.test(m) || /tokenizer/i.test(m);
+  // v0.12.1: also catch web-llm's "Object has already been disposed" — iPad
+  // Safari drops the WebGPU device under memory pressure, killing the engine
+  // even though the UI still shows it as ready. The existing one-shot
+  // recovery (_recoverEngine + retry) handles this correctly once recognized.
+  return /deleted object/i.test(m) || /tokenizer/i.test(m) || /disposed/i.test(m);
 }
 
 const WebLLMBrainRuntime = {
