@@ -58,6 +58,7 @@
 <script src="assets/zeno-gallery.js"></script>
 <script src="assets/zeno-stylebook.js"></script>
 <script src="assets/zeno-fixguard.js"></script>
+<script src="assets/zeno-toolproposals.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -107,6 +108,10 @@ main{max-width:1000px;margin:auto;padding:18px}
 #styleMsg{min-height:18px}
 .imgstatus{font-size:13px;color:#8fa6b4}
 .imgfix{display:grid;gap:8px;width:100%;margin-top:10px;padding-top:10px;border-top:1px solid #263743}
+/* v0.19 proposal card: Zeno proposes, Andrew approves. */
+.proposalcard{margin-top:10px;padding:12px;border:1px solid #2b4a5e;border-radius:12px;background:#0c1a24}
+.proposalcard-title{font-weight:700;margin-bottom:6px}
+.proposalcard-lines{margin:0 0 4px;padding-left:20px;display:grid;gap:4px;font-size:14px;color:#cfe3f2}
 .imgfix[hidden]{display:none}
 .imgfix label{font-size:14px;font-weight:750;color:#dceaf2}
 .imgfix textarea{min-height:74px;margin:0}
@@ -531,7 +536,16 @@ const TOOL_PROTOCOL =
   "a tool result arrives, emit another TOOL line if you still need something, otherwise answer Andrew in your own " +
   "words using the results. Never invent a tool result. Never emit a TOOL line when no tool is needed. " +
   "Never claim tools you don't have. You cannot delete notes, memories, or reminders — for those, tell Andrew the " +
-  "exact words to say (like \"delete note 2\") and he will confirm it himself.";
+  "exact words to say (like \"delete note 2\") and he will confirm it himself." +
+  "PROPOSE (v0.19 self-upgrade, tools path): you may suggest new tools for yourself. Emit ONE block " +
+  "at the very end of your reply, exactly this shape: " +
+  "PROPOSE {\"kind\":\"tool\",\"name\":\"snake_case\",\"description\":\"plain words\"," +
+  "\"trigger\":\"regex with capture groups\",\"why\":\"why this helps Andrew\"," +
+  "\"steps\":[{\"primitive\":\"calc\",\"template\":\"$1 * 2\"}]} " +
+  "Primitives allowed: calc, datetime, memory_search, memory_save, notes, web_lookup, reminder_propose. " +
+  "$1..$9 in templates come from the trigger's capture groups. NEVER propose deleting, forgetting, " +
+  "or removing anything. Andrew approves every proposal on a card before anything installs — " +
+  "nothing self-installs silently, ever. If unsure, say so honestly and emit no block.";
 const STORAGE_ABILITY_TEXT = window.ZenoRuntime.durableStorage
   ? "remember things on this device between visits, export/import backups, and show or forget them on command"
   : "remember things during this open session, export/import backups, and show or forget them on command";
@@ -2049,6 +2063,330 @@ const ZenoBrowser = {
 };
 
 /* ============================================================
+   ZenoLearned — v0.19 page glue for "Zeno proposes, Andrew approves".
+   Wires the pure-logic ZenoToolProposals module to the page:
+   - IndexedDB persistence for learned tool defs + rejection memory
+   - Registers approved tools into ZenoTools.tools (AFTER built-ins,
+     so a learned trigger can never shadow a core command)
+   - "You should learn to X" -> asks the brain to draft a PROPOSE
+     block -> validated -> proposal card
+   - Brain-emitted PROPOSE blocks -> validated -> proposal card
+   - Proposal card UI: Approve installs, Reject remembers (never
+     re-proposes). Amendments to learned tools apply at the data
+     level; amendments to built-ins are queued honestly for Kavi.
+   ============================================================ */
+const ZenoLearned = {
+  _ready: false,
+  _defs: [],          // validated, approved tool defs (in memory)
+  _rejections: null,  // ZenoToolProposals rejection memory
+  _amendQueue: [],    // approved built-in amendments, queued for Kavi
+
+  /* ---------- persistence (tiny IDB helper, own database) ---------- */
+  _db(){
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined"){ reject(new Error("no indexedDB")); return; }
+      const req = indexedDB.open("zeno-learned-tools", 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("tools")) db.createObjectStore("tools", { keyPath: "name" });
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv", { keyPath: "k" });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error("idb open failed"));
+    });
+  },
+  async _kvGet(k){
+    let db;
+    try { db = await this._db(); } catch(e){ return null; }
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("kv", "readonly");
+        const q = tx.objectStore("kv").get(k);
+        q.onsuccess = () => resolve(q.result ? q.result.v : null);
+        q.onerror = () => resolve(null);
+      } catch(e){ resolve(null); }
+    });
+  },
+  async _kvSet(k, v){
+    let db;
+    try { db = await this._db(); } catch(e){ return false; }
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("kv", "readwrite");
+        tx.objectStore("kv").put({ k, v });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch(e){ resolve(false); }
+    });
+  },
+
+  async init(){
+    if (this._ready) return;
+    this._ready = true;
+    try {
+      const backing = (await this._kvGet("rejections")) || {};
+      this._rejections = ZenoToolProposals.createRejectionMemory(backing);
+      this._amendQueue = (await this._kvGet("amendQueue")) || [];
+      const db = await this._db();
+      const tools = await new Promise((resolve) => {
+        try {
+          const tx = db.transaction("tools", "readonly");
+          const q = tx.objectStore("tools").getAll();
+          q.onsuccess = () => resolve(q.result || []);
+          q.onerror = () => resolve([]);
+        } catch(e){ resolve([]); }
+      });
+      for (const def of tools){
+        // Re-validate on load: stored defs must still pass today's rules.
+        const chk = ZenoToolProposals.validateProposal(def, this._reservedNames());
+        if (chk.ok) this._register(chk.def);
+        // Silently drops anything that no longer validates — fail closed.
+      }
+      this._wrapAbilities();
+    } catch(e){ /* learned tools never break boot */ }
+  },
+
+  _reservedNames(){
+    return ZenoTools.tools.map(t => t.id.replace(/^learned:/, ""));
+  },
+
+  /* ---------- safe primitive adapters: string in, string out ---------- */
+  _primitives(){
+    const calcExpr = (input) => {
+      const r = ZenoAgent.calcExpr(String(input).slice(0, 120));
+      return r.ok ? (String(input).trim() + " = " + r.value) : r.error;
+    };
+    return {
+      calc: async (input) => calcExpr(input),
+      datetime: async () => {
+        const d = new Date();
+        return d.toLocaleDateString([], { weekday:"long", year:"numeric", month:"long", day:"numeric" }) +
+               ", " + d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+      },
+      memory_search: async (input) => {
+        const mems = MemoryStore.relevant(String(input).slice(0, 200), 5);
+        if (!mems.length) return "No stored memories match \"" + String(input).slice(0,80) + "\".";
+        return mems.map(m => "- " + m.text).join("\n");
+      },
+      memory_save: async (input) => {
+        const t = String(input).trim().slice(0, 400);
+        if (t.length < 2) return "Nothing to save — the memory text was empty.";
+        MemoryStore.add("episodic", "User asked me to remember: " + t);
+        return "Saved to my memory: \"" + t + "\"";
+      },
+      notes: async (input) => {
+        const t = String(input).trim().slice(0, 500);
+        if (t.length < 2) return "Nothing to save — the note was empty.";
+        NoteStore.add(t);
+        return "Saved as note " + NoteStore.list().length + ": \"" + t + "\"";
+      },
+      // Markers handled after runLearned: the visible research flow and
+      // the reminder yes/no flow stay exactly as Andrew knows them.
+      web_lookup: async (input) => "__ZENO_RESEARCH__::" + String(input).slice(0, 240),
+      reminder_propose: async (input) => "__ZENO_REMINDER__::" + String(input).slice(0, 240)
+    };
+  },
+
+  /* ---------- registration into ZenoTools (after built-ins) ---------- */
+  _register(def){
+    // No duplicates on re-init. Mutate in place: other code may hold
+    // the array reference, so never reassign ZenoTools.tools.
+    for (let i = ZenoTools.tools.length - 1; i >= 0; i--){
+      if (ZenoTools.tools[i].id === "learned:" + def.name) ZenoTools.tools.splice(i, 1);
+    }
+    this._defs = this._defs.filter(d => d.name !== def.name);
+    this._defs.push(def);
+    const self = this;
+    ZenoTools.tools.push({
+      id: "learned:" + def.name,
+      confirm: def.permission === "confirm",
+      match(text){
+        return ZenoToolProposals.matchLearned(def, text) ? { text } : null;
+      },
+      describe(){
+        return "use my learned tool \"" + def.name + "\" (" + def.description.slice(0, 90) + ")";
+      },
+      async run(args){
+        const res = await ZenoToolProposals.runLearned(def, args.text, self._primitives());
+        if (!res.ok) return { text: res.text };
+        // Research marker -> visible research flow (own bubble + sources).
+        if (res.text.indexOf("__ZENO_RESEARCH__::") === 0){
+          const q = res.text.slice("__ZENO_RESEARCH__::".length);
+          return { text: "Looking that up now…", toolAction: { type: "research", query: q, deep: false } };
+        }
+        // Reminder marker -> the standard yes/no confirmation, like always.
+        if (res.text.indexOf("__ZENO_REMINDER__::") === 0){
+          const spec = res.text.slice("__ZENO_REMINDER__::".length);
+          const parts = spec.split("|");
+          const what = (parts[0] || spec).trim().slice(0, 200);
+          const mins = Math.max(1, Math.min(24 * 60, parseInt(parts[1], 10) || 30));
+          const when = mins >= 60 ? ("in " + (Math.round(mins / 60 * 10) / 10) + " hours") : ("in " + mins + " minutes");
+          ZenoTools.pending = {
+            summary: "set a reminder \"" + what + "\" " + when + " (from my learned tool \"" + def.name + "\")",
+            tool: { run: async () => {
+              const r = await ZenoAgent.TOOLS.reminder_set.run({ what, inMinutes: mins });
+              return { text: r.text };
+            }},
+            args: {}
+          };
+          return { text: "Just to be safe — you want me to set a reminder \"" + what + "\" " + when + "? Say yes to go ahead, or no to cancel." };
+        }
+        return { text: res.text };
+      }
+    });
+  },
+
+  async _persistDef(def){
+    try {
+      const db = await this._db();
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction("tools", "readwrite");
+          tx.objectStore("tools").put(def);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch(e){ resolve(false); }
+      });
+    } catch(e){ /* memory copy still works this session */ }
+  },
+  async _persistRejections(){
+    try { await this._kvSet("rejections", this._rejections._backing); } catch(e){}
+  },
+
+  /* ---------- "what can you do?" includes learned tools ---------- */
+  _wrapAbilities(){
+    if (!window.ZenoChangelog || this._wrappedAbilities) return;
+    this._wrappedAbilities = true;
+    const orig = window.ZenoChangelog.abilitiesAnswer.bind(window.ZenoChangelog);
+    const self = this;
+    window.ZenoChangelog.abilitiesAnswer = function(){
+      const base = orig();
+      const extra = ZenoToolProposals.describeAll(self._defs);
+      if (!extra) return base;
+      return base + "\n\nThings I've learned since (approved by Andrew):\n" + extra;
+    };
+  },
+
+  /* ---------- Andrew-initiated: "you should learn to X" ---------- */
+  tryLearnRequest(text){
+    if (!window.ZenoToolProposals) return null;
+    return ZenoToolProposals.draftFromLearnRequest(text);
+  },
+  learnPrompt(skill){
+    return "Andrew wants you to learn a new skill: \"" + skill + "\". " +
+      "If you can define it as a safe tool built ONLY from these primitives " +
+      "(calc, datetime, memory_search, memory_save, notes, web_lookup, reminder_propose), " +
+      "end your reply with ONE block in exactly this shape:\n" +
+      "PROPOSE {\"kind\":\"tool\",\"name\":\"snake_case_name\",\"description\":\"plain words, 10-400 chars\"," +
+      "\"trigger\":\"a regex with capture groups for the variable parts\"," +
+      "\"why\":\"why this helps Andrew, 10-400 chars\"," +
+      "\"steps\":[{\"primitive\":\"calc\",\"template\":\"$1 * 1.60934\"}]}\n" +
+      "Rules: name is 3-40 lowercase chars; trigger must not match everything; " +
+      "templates use $1..$9 from the trigger; NEVER propose deleting, forgetting, or removing anything; " +
+      "Andrew approves every proposal on a card before anything installs. " +
+      "If you cannot define it safely, say so honestly and say what is missing — no PROPOSE block.";
+  },
+
+  /* ---------- brain-initiated: PROPOSE block in a reply ---------- */
+  handleBrainProposal(obj, strippedFallbackText){
+    const chk = ZenoToolProposals.validateProposal(obj, this._reservedNames());
+    if (!chk.ok){
+      return { card: false, note: "I had an idea for a new tool, but it didn't pass my own safety check (" +
+        chk.errors[0] + "). I'm not proposing it." };
+    }
+    if (this._rejections.has(chk.def.name)){
+      return { card: false, note: null }; // rejected before: stay quiet, don't re-propose
+    }
+    if (this._defs.some(d => d.name === chk.def.name)){
+      return { card: false, note: "I already know how to do that — it's \"" + chk.def.name + "\"." };
+    }
+    return { card: true, def: chk.def, intro: strippedFallbackText };
+  },
+
+  /* ---------- proposal card UI ---------- */
+  showProposalCard(def, introText){
+    const card = ZenoToolProposals.proposalCard(def);
+    const holder = add("zeno",
+      (introText && introText.length > 1 ? introText + "\n\n" : "") +
+      "I have an idea — I want to learn something new. Nothing installs until you say so.",
+      null, { brain: "Propose" });
+    const box = document.createElement("div");
+    box.className = "proposalcard";
+    const title = document.createElement("div");
+    title.className = "proposalcard-title";
+    title.textContent = "💡 " + card.title;
+    box.appendChild(title);
+    const list = document.createElement("ul");
+    list.className = "proposalcard-lines";
+    for (const line of card.lines){
+      const li = document.createElement("li");
+      li.textContent = line;
+      list.appendChild(li);
+    }
+    box.appendChild(list);
+    const row = document.createElement("div");
+    row.className = "imgrow";
+    const okBtn = document.createElement("button");
+    okBtn.textContent = "✅ " + card.approveLabel;
+    const noBtn = document.createElement("button");
+    noBtn.className = "secondary";
+    noBtn.textContent = "✖ " + card.rejectLabel;
+    row.append(okBtn, noBtn);
+    box.appendChild(row);
+    holder.appendChild(box);
+
+    okBtn.addEventListener("click", async () => {
+      okBtn.disabled = true; noBtn.disabled = true;
+      await this._approve(def);
+      const isQueuedAmend = def.kind === "amend" && !this._defs.some(d => d.name === def.target);
+      const isLearnedAmend = def.kind === "amend" && !isQueuedAmend;
+      add("zeno", isQueuedAmend
+        ? "Noted — I've queued that change for Kavi's next build, since I can't rewrite my built-in tools myself. I won't pretend otherwise."
+        : isLearnedAmend
+          ? "Updated. \"" + def.target + "\" has the change — try it out."
+          : "Learned it. \"" + def.name + "\" is installed — ask me \"what can you do?\" and you'll see it there.",
+        null, { brain: "Propose" });
+    }, { once: true });
+    noBtn.addEventListener("click", async () => {
+      okBtn.disabled = true; noBtn.disabled = true;
+      this._rejections.note(def.name, "Andrew rejected the proposal card");
+      await this._persistRejections();
+      add("zeno", "Got it — I won't bring \"" + def.name + "\" up again.", null, { brain: "Propose" });
+    }, { once: true });
+  },
+
+  async _approve(def){
+    if (def.kind === "amend"){
+      const existing = this._defs.find(d => d.name === def.target);
+      if (existing){
+        // Data-level amendment of a LEARNED tool: re-validate the merge.
+        const merged = Object.assign({}, existing, {
+          trigger: def.trigger, steps: def.steps,
+          description: def.description, why: def.why
+        });
+        const chk = ZenoToolProposals.validateProposal(merged, this._reservedNames().filter(n => n !== existing.name));
+        if (chk.ok){
+          await this._persistDef(chk.def);
+          this._register(chk.def);
+          return;
+        }
+        // Falls through to queue if the merge doesn't validate.
+      }
+      // Built-in target (or failed merge): honest queue for Kavi.
+      this._amendQueue.push({ target: def.target, change: def.description, why: def.why, at: new Date().toISOString() });
+      try { await this._kvSet("amendQueue", this._amendQueue); } catch(e){}
+      return;
+    }
+    // Fresh tool: final validation at install time, then persist + register.
+    const chk = ZenoToolProposals.validateProposal(def, this._reservedNames());
+    if (!chk.ok) return; // fail closed, even on the approve tap
+    await this._persistDef(chk.def);
+    this._register(chk.def);
+  }
+};
+
+
+/* ============================================================
    ZenoAgent — v0.11 Phase 1: model-decided tool use (spec v0.3
    tool-use foundation, iPad-feasible). Prompt-based protocol, not
    native function calling: the model emits one TOOL line, the
@@ -2288,6 +2626,12 @@ const ZenoPrime = {
       updateMoodMeta();
       return { text: pendRes.text, memoriesSaved: 0, moodEvents, toolAction: pendRes.toolAction || null };
     }
+    // v0.19: "you should learn to X" — the brain drafts the tool, the
+    // validator checks it, Andrew approves it on a card. Never silent.
+    if (typeof ZenoLearned !== "undefined" && window.ZenoToolProposals){
+      const learnReq = ZenoLearned.tryLearnRequest(text);
+      if (learnReq) text = text + "\n\n[" + ZenoLearned.learnPrompt(learnReq.skill) + "]";
+    }
     const toolRes = await ZenoTools.tryHandle(text);
     if (toolRes){
       this.conversation.push({ role: "zeno", text: toolRes.text });
@@ -2307,6 +2651,29 @@ const ZenoPrime = {
     const response = await ZenoAgent.respond(this.brain, Object.assign({
       text, conversation: history, memories: relevant
     }, runtimeOpts));
+    // v0.19: a brain-emitted PROPOSE block becomes a proposal card —
+    // validated first, never installed silently, never re-proposed.
+    if (typeof ZenoLearned !== "undefined" && window.ZenoToolProposals){
+      const proposed = ZenoToolProposals.parseProposalBlock(response.text || "");
+      if (proposed){
+        const intro = ZenoToolProposals.stripProposalBlock(response.text || "");
+        const handled = ZenoLearned.handleBrainProposal(proposed, intro);
+        this.conversation.push({ role: "zeno", text: response.text });
+        updateMoodMeta();
+        if (handled.card){
+          ZenoLearned.showProposalCard(handled.def, handled.intro);
+          return { text: handled.intro || "I have an idea for a new tool — see the card below.",
+            memoriesSaved: saved.length, moodEvents,
+            retried: !!response.retried, brainTier: response.brainTier || runtimeOpts.brainTier || "medium" };
+        }
+        if (handled.note){
+          return { text: (intro ? intro + "\n\n" : "") + handled.note,
+            memoriesSaved: saved.length, moodEvents,
+            retried: !!response.retried, brainTier: response.brainTier || runtimeOpts.brainTier || "medium" };
+        }
+        response.text = intro; // rejected before: carry on, quietly
+      }
+    }
     // v0.14: the agent loop asked for a yes/no before a consequential
     // tool (e.g. setting a reminder). Bridge it into the existing pending
     // confirmation flow — Andrew's tap decides, nothing runs without it.
@@ -4388,6 +4755,7 @@ renderLoyalBtn();
 updateMoodMeta();
 updateBrainMeta();
 ZenoVoice.init();
+try{ if (typeof ZenoLearned !== "undefined") ZenoLearned.init(); }catch(e){}
 // Self-changelog (v0.7): Zeno announces new abilities once per update,
 // in plain words, then marks the version seen. Never repeats.
 setTimeout(() => {
