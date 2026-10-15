@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.18";
+const ZENO_VERSION = "0.19";
 
 const ZENO_CHANGELOG = [
   {
@@ -283,6 +283,23 @@ const ZENO_CHANGELOG = [
     abilities: [
       "Same-seed image tweaks that feel like edits",
       "Drift guard: rewrites that lose your idea are rejected automatically"
+    ]
+  },
+  {
+    version: "0.19",
+    date: "2026-10-15",
+    headline: "I can propose new tools for myself — you approve every one",
+    whatsNew: [
+      "I can now suggest new abilities for myself — like a miles-to-km converter — on a proposal card that shows what it does and why I want it.",
+      "The standing rule, in my own words: I propose, Andrew approves. Nothing installs silently, ever. Reject one and I'll never bring it up again.",
+      "Say \"you should learn to X\" and I'll draft the proposal for your yes or no.",
+      "Every proposed tool is checked before it installs: built only from my safe tools, no network tricks, no deleting anything, and anything consequential still asks you first.",
+      "I can also propose changes to tools I already learned. Changes to my built-in tools get queued honestly for Kavi's next build — I can't rewrite those myself."
+    ],
+    abilities: [
+      "Propose new tools for Andrew's approval (proposal card with what + why)",
+      "Learned tools persist on this device and appear in \"what can you do?\"",
+      "Rejections are remembered — no re-proposing"
     ]
   }
 ];
