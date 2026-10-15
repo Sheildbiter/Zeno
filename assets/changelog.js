@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.12";
+const ZENO_VERSION = "0.14";
 
 const ZENO_CHANGELOG = [
   {
@@ -192,6 +192,41 @@ const ZENO_CHANGELOG = [
       "Thunder vocalization and body-language translation",
       "Honest hands status (Lair-bound, not faked)",
       "Memory that persists until you say forget, with export/import"
+    ]
+  },
+  {
+    version: "0.13",
+    date: "2026-10-14",
+    headline: "Live chat v2: faster voice, my name heard right, no more cut-offs",
+    whatsNew: [
+      "Voice answers start speaking in about a second now \u2014 I talk while I'm still thinking, instead of making you wait for the whole reply.",
+      "I finally hear my own name: xeno, zino, even zulu when you mean me \u2014 it all arrives as Zeno, spelled right, every time.",
+      "I don't cut you off anymore. In conversation mode I wait through your pauses (up to 20 seconds), and if you tap to keep talking mid-thought, nothing gets lost.",
+      "Slap levels of brains, like you asked: a quick \u201chi\u201d gets an instant tiny answer; \u201cbuild me a video game\u201d gets full power. Simple things stay on the brain that's already warm so there's no waiting.",
+      "Spoken replies are shorter and more natural now \u2014 no more lists or code read aloud at you; details stay on screen."
+    ],
+    abilities: [
+      "Streaming voice: first spoken word in ~1 second",
+      "Name recognition: every mishearing of Zeno auto-corrected",
+      "Patient conversation mode: 20s pause tolerance, thought carry-over",
+      "Adaptive brain tiers: instant for trivial, full power for hard",
+    ]
+  },
+  {
+    version: "0.14",
+    date: "2026-10-14",
+    headline: "I'm an agent now: I use tools and do multi-step tasks",
+    whatsNew: [
+      "Simple things are instant now — ask me math or the time and I answer without even warming up a brain.",
+      "I can chain tools: look something up in my memory, then save a note about it, all in one go.",
+      "I can propose reminders from normal conversation — but I always ask you first with a yes/no tap before setting one.",
+      "Safety rules are written down in my code: I can never delete anything on my own, and some other things stay off-limits no matter what."
+    ],
+    abilities: [
+      "Instant answers for math, time, and 'remember that ...' (no brain needed)",
+      "Multi-step tool use: up to 4 chained tool calls per turn",
+      "Proposed reminders with your yes/no confirmation",
+      "Notes for the asking: save, list, search (deletion still needs your tap)"
     ]
   }
 ];
