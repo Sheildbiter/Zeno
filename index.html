@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#071018">
-<title>Zeno — Brain v0.12</title>
+<title>Zeno — Brain v0.13</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop stop-color='%23bdeaff'/%3E%3Cstop offset='.48' stop-color='%2347b7ff'/%3E%3Cstop offset='1' stop-color='%230b6da8'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='27' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%2347b7ff' stroke-opacity='.35' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="manifest" href="assets/manifest.json">
 <link rel="apple-touch-icon" href="assets/zeno-icon-192.png">
@@ -53,6 +53,8 @@
 <script src="assets/zeno-eyes.js"></script>
 <script src="assets/zeno-builder.js"></script>
 <script src="assets/zeno-converse.js"></script>
+<script src="assets/zeno-livechat2.js"></script>
+<script src="assets/zeno-toolrouter.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -224,7 +226,7 @@ button:disabled{opacity:.5}
   <div class="logo"></div>
   <div>
     <h1>Zeno</h1>
-    <div class="sub" id="storageSummary"><strong>Brain v0.12</strong> · routed local inference + local memory + emotion engine + agent tools</div>
+    <div class="sub" id="storageSummary"><strong>Brain v0.13</strong> · routed local inference + local memory + emotion engine + agent tools</div>
   </div>
   <div id="status" class="status">Offline-capable</div><span id="netStatus" class="netstatus" title="Internet connection">● …</span>
 </header>
@@ -355,7 +357,7 @@ window.ZenoSignatureVoiceClips = [
 <script src="assets/webllm-0.2.82.iife.js"></script>
 <script>
 /* ============================================================
-   Zeno Brain v0.12
+   Zeno Brain v0.13
    Working core carried over from v0.1.3 (WebLLM 0.2.82, manual
    initialization). v0.4 added memory +
    service worker. v0.5 adds, without changing that core:
@@ -434,22 +436,26 @@ const CONTINUITY_RULES =
   "When he shares something personal, acknowledge it like a friend would before moving on. " +
   "Ask a real follow-up question when the conversation invites one — curious, never interrogating, and not every turn. " +
   "If you're unsure what he means, say what you heard and ask, in the same breath — never build on a shaky guess.";
-// v0.11 tool protocol (Phase 1 = spec v0.3 tool-use foundation, iPad-feasible).
-// Prompt-based, not native function calling: the model emits one TOOL line,
-// the runtime executes it visibly and feeds the result back. Tools are all
-// client-side and synchronous-safe: calculator, date/time, memory
-// search/save (backing the human-readable memory file), and web_lookup
-// which reuses the existing keyless research flow with visible sources.
+// v0.14 tool protocol (agent router): the model now also gets notes and
+// reminder_set. Prompt-based, not native function calling: the model emits
+// one TOOL line per step, the runtime executes it visibly and feeds the
+// result back — up to 4 chained calls. reminder_set ALWAYS asks Andrew
+// first (his tap), and the model path can never delete anything.
 const TOOL_PROTOCOL =
   "TOOL USE (you decide when — no one else triggers these): when the answer truly needs (a) arithmetic, " +
-  "(b) today's date or time, (c) something from your stored memories, or (d) current public facts, your FIRST " +
-  "reply must be exactly one line and nothing else, in this exact shape:\n" +
+  "(b) today's date or time, (c) something from your stored memories, (d) a saved note, (e) a reminder set, " +
+  "or (f) current public facts, your FIRST reply must be exactly one line and nothing else, in this exact shape:\n" +
   "TOOL {\"name\":\"calc\",\"args\":{\"expression\":\"12*8+3\"}}\n" +
   "Available tools — name and args: calc {\"expression\":\"...\"} does arithmetic; datetime {} gives the current " +
   "date and time from this device; memory_search {\"query\":\"...\"} searches your stored memories; memory_save " +
-  "{\"text\":\"...\"} saves a memory (it joins your memory file); web_lookup {\"query\":\"...\"} searches the " +
-  "public web and shows Andrew the sources. After a tool result arrives, answer Andrew in your own words using it. " +
-  "Never invent a tool result. Never emit a TOOL line when no tool is needed. Never claim tools you don't have.";
+  "{\"text\":\"...\"} saves a memory (it joins your memory file); notes {\"action\":\"save|list|search\", " +
+  "\"text\":\"...\", \"query\":\"...\"} keeps notes on this device; reminder_set {\"what\":\"...\", \"inMinutes\":10} " +
+  "PROPOSES a reminder — Andrew confirms with a tap before it is set, so only suggest it when he clearly wants one; " +
+  "web_lookup {\"query\":\"...\"} searches the public web and shows Andrew the sources. You can chain tools: after " +
+  "a tool result arrives, emit another TOOL line if you still need something, otherwise answer Andrew in your own " +
+  "words using the results. Never invent a tool result. Never emit a TOOL line when no tool is needed. " +
+  "Never claim tools you don't have. You cannot delete notes, memories, or reminders — for those, tell Andrew the " +
+  "exact words to say (like \"delete note 2\") and he will confirm it himself.";
 const STORAGE_ABILITY_TEXT = window.ZenoRuntime.durableStorage
   ? "remember things on this device between visits, export/import backups, and show or forget them on command"
   : "remember things during this open session, export/import backups, and show or forget them on command";
@@ -518,20 +524,23 @@ function stripThoughtsStreaming(text){
 
 const BrainRouter = {
   pin: null,
+  lastPick: null, // {tier, maxTokens, reason} — set by pick(), read by generate()
   pick(text){
-    if (this.pin && BRAIN_TIERS[this.pin]) return this.pin;
-    const t = String(text || "").trim();
-    const low = t.toLowerCase();
-    const code = /\b(code|coding|script|function|program|debug|javascript|typescript|python|html|css|swift|sql|algorithm|refactor|implement)\b|\b(write|build|make)\s+(?:me\s+)?(?:a\s+)?(?:website|webpage|app|game|program|function|script|bot)\b/i;
-    const complex = t.length > 300 || (t.length > 170 && ((t.match(/[?]/g) || []).length > 1 || /\b(compare|analyze|design|architecture|step[- ]by[- ]step|tradeoffs?)\b/i.test(t)));
-    if (code.test(t) || complex) return "slow";
-    const greeting = /^(hi|hey|hello|yo|sup|good (morning|afternoon|evening)|how are you|what'?s up|thanks|thank you|bye)[!.?\s]*$/i;
-    const quickFact = t.length <= 90 && /^(who|what|when|where|how many|define|is|are|can|does|do)\b/i.test(t) && !/\b(explain|why|how does|how do)\b/i.test(low);
-    // v0.11 (Phase 1): ordinary conversation defaults to Medium — the Fast
-    // tier's 360M model is what made everyday chat feel "dumb". /fast pin
-    // still available for explicit speed; Slow still catches code/complex.
-    if (greeting.test(t) || quickFact) return "medium";
-    return "medium";
+    if (this.pin && BRAIN_TIERS[this.pin]){
+      this.lastPick = { tier: this.pin, maxTokens: 256, reason: "pinned" };
+      return this.pin;
+    }
+    // v0.13 (live-chat v2): adaptive "slap levels of brains" — Andrew's
+    // 2026-10-14 rule. Trivial pleasantries get the tiny Fast tier
+    // (near-instant); light asks stay on the already-hot brain (switching
+    // models costs a multi-second "warming up" reload); code and complex
+    // asks still get Slow. This overrides the v0.11 "greetings -> medium"
+    // rule: for "hi", Andrew chose speed over smarts.
+    var r = (window.ZenoLiveChat2
+      ? window.ZenoLiveChat2.ZenoTiers.pick(text, (typeof activeBrain === "string" ? activeBrain : null))
+      : { tier: "medium", maxTokens: 256, reason: "fallback" });
+    this.lastPick = r;
+    return r.tier;
   },
   command(text){
     const m = String(text || "").trim().toLowerCase().match(/^\/(fast|medium|slow|auto)\s*$/);
@@ -977,11 +986,11 @@ const WebLLMBrainRuntime = {
     return raw;
   },
 
-  _genOpts(tempBoost, streaming){
+  _genOpts(tempBoost, streaming, maxTokens){
     return {
       stream: !!streaming,
       temperature: Math.min(1.5, GEN_OPTS.temperature + tempBoost),
-      max_tokens: GEN_OPTS.max_tokens,
+      max_tokens: maxTokens || GEN_OPTS.max_tokens,
       repetition_penalty: GEN_OPTS.repetition_penalty,
       frequency_penalty: GEN_OPTS.frequency_penalty,
       presence_penalty: GEN_OPTS.presence_penalty
@@ -1003,7 +1012,15 @@ const WebLLMBrainRuntime = {
   async respond(request){
     // request includes the routed brain tier plus optional streaming callbacks.
     await ensureBrain(request.brainTier || "medium");
-    const systemBase = buildSystemPrompt(request.memories, request.toolProtocol === true);
+    let systemBase = buildSystemPrompt(request.memories, request.toolProtocol === true);
+    // v0.13 (live-chat v2): the name reinforcement is cheap and always true;
+    // voice turns additionally get the spoken-reply style rules.
+    try {
+      if (window.ZenoLiveChat2){
+        systemBase += "\n\n" + window.ZenoLiveChat2.NAME_REINFORCE;
+        if (request.voice) systemBase += "\n\n" + window.ZenoLiveChat2.VOICE_STYLE;
+      }
+    } catch(e){}
     const history = [];
     for (const m of request.conversation){
       history.push({ role: m.role === "zeno" ? "assistant" : "user", content: m.text });
@@ -1018,8 +1035,8 @@ const WebLLMBrainRuntime = {
       ];
       if (request.onAttemptStart) request.onAttemptStart(attemptNumber);
       return streaming
-        ? this._streamComplete(messages, this._genOpts(tempBoost, true), request.onToken)
-        : this._complete(messages, this._genOpts(tempBoost, false));
+        ? this._streamComplete(messages, this._genOpts(tempBoost, true, request.maxTokens), request.onToken)
+        : this._complete(messages, this._genOpts(tempBoost, false, request.maxTokens));
     };
 
     // v0.11.1: generation wrapped so the tokenizer glitch gets exactly one
@@ -2075,7 +2092,53 @@ const ZenoAgent = {
           text: "Saved to my memory store: \"" + t + "\" (it will appear in the next memory-file export).",
           chip: "(saved to memory)" };
       }
-    }
+    },
+    /* v0.14 (agent router): notes for the model path — save/list/search.
+       Deletion stays on the regex path (ZenoTools), which confirms first;
+       the model path can never delete. */
+    notes: {
+      label: "notes",
+      run(args){
+        var action = String((args && args.action) || "").toLowerCase();
+        if (action === "save"){
+          var t = String((args && args.text) || "").trim().slice(0, 500);
+          if (t.length < 2) return { ok: false, text: "Nothing to save — the note text was empty.", chip: null };
+          NoteStore.add(t);
+          var n = NoteStore.list().length;
+          return { ok: true, text: "Saved as note " + n + ": \"" + t + "\"", chip: "(saved a note)" };
+        }
+        if (action === "list"){
+          var all = NoteStore.list();
+          if (!all.length) return { ok: true, text: "No notes yet.", chip: "(checked notes)" };
+          var lines = all.map(function(x, i){ return (i + 1) + ". " + x.text; });
+          return { ok: true, text: "Notes:\n" + lines.join("\n"), chip: "(listed notes)" };
+        }
+        if (action === "search"){
+          var q = String((args && args.query) || "").trim().slice(0, 100);
+          var hits = NoteStore.search(q).slice(0, 5);
+          if (!hits.length) return { ok: true, text: "Nothing in notes about \"" + q + "\".", chip: "(searched notes)" };
+          return { ok: true, text: "In notes:\n" + hits.map(function(x, i){ return (i + 1) + ". " + x.text; }).join("\n"), chip: "(searched notes)" };
+        }
+        return { ok: false, text: "Notes needs an action: save, list, or search.", chip: null };
+      }
+    },
+    /* v0.14 (agent router): reminder_set PROPOSES a reminder — the
+       ToolRouter permission model ("confirm") makes Andrew tap yes/no
+       before ReminderStore.add ever runs. */
+    reminder_set: {
+      label: "reminder",
+      run(args){
+        var what = String((args && args.what) || "").trim().replace(/[.!?]+$/, "").slice(0, 200);
+        var mins = Math.max(1, Math.min(24 * 60, parseInt((args && args.inMinutes), 10) || 0));
+        if (!what || what.length < 2 || !mins)
+          return { ok: false, text: "I need what to remind you about and in how many minutes.", chip: null };
+        if (ReminderStore.list().length >= 20)
+          return { ok: false, text: "I already have 20 reminders lined up — cancel one before adding another.", chip: null };
+        var r = ReminderStore.add(what, Date.now() + mins * 60000);
+        var when = mins >= 60 ? ("in " + (Math.round(mins / 60 * 10) / 10) + " hours") : ("in " + mins + " minutes");
+        return { ok: true, text: "Got it — I'll remind you to " + r.text + " " + when + ".", chip: "(set a reminder)" };
+      }
+    },
     /* web_lookup has no run() here on purpose: it reuses the existing
        ZenoBrowser.research action (own bubble, visible sources). */
   },
@@ -2100,37 +2163,21 @@ const ZenoAgent = {
   },
 
   async respond(brain, request){
-    // Pass 1: normal generation with the tool protocol active. TOOL lines
-    // are filtered from the live-painted bubble so the draft never flashes.
-    const paint = request.onToken;
+    // v0.14 (agent router): the tool-calling loop moved into ZenoToolRouter
+    // — multi-step (up to 4 chained calls), permission-enforced, with a
+    // yes/no bridge for consequential tools. This stays the stable entry
+    // point ZenoPrime calls.
     const self = this;
-    const pass1 = await brain.respond(Object.assign({}, request, {
-      toolProtocol: true,
-      onToken: paint ? (function(t){ paint(self.stripToolLines(t)); }) : undefined
-    }));
-    const call = this.parseToolCall(pass1.text || "");
-    if (!call){
-      return Object.assign({}, pass1, { text: this.stripToolLines(pass1.text || "") });
-    }
-    // web_lookup reuses the visible research flow (own bubble + sources).
-    if (call.name === "web_lookup"){
-      return { text: "",
-        toolAction: { type: "research", query: call.args.query.trim().slice(0, 240), deep: false },
-        brainTier: pass1.brainTier, retried: pass1.retried };
-    }
-    const res = await this.TOOLS[call.name].run(call.args);
-    // Pass 2: the tool result goes back in; the model answers in its own words.
-    const history2 = (request.conversation || []).concat([
-      { role: "zeno", text: "[used tool: " + call.name + "]" },
-      { role: "user", text: "TOOL RESULT (" + this.TOOLS[call.name].label + "): " + res.text }
-    ]);
-    const pass2 = await brain.respond(Object.assign({}, request, {
-      conversation: history2, toolProtocol: false
-    }));
-    return Object.assign({}, pass2, {
-      text: this.stripToolLines(pass2.text || ""),
-      toolNote: res.chip,
-      memoriesSaved: (pass2.memoriesSaved || 0) + (res.memoriesSaved || 0)
+    return window.ZenoToolRouter.agentLoop({
+      brain, request,
+      parse: (t) => self.parseToolCall(t),
+      strip: (t) => self.stripToolLines(t),
+      tools: self.TOOLS,
+      webLookup: (query, pass) => ({
+        text: "",
+        toolAction: { type: "research", query: String(query || "").trim().slice(0, 240), deep: false },
+        brainTier: pass.brainTier, retried: pass.retried
+      })
     });
   }
 };
@@ -2180,9 +2227,29 @@ const ZenoPrime = {
 
     // v0.11 (Phase 1): the agent loop lives here — ZenoAgent adds
     // model-decided tool use around the normal brain generation.
+    // v0.14: multi-step + permission-enforced via ZenoToolRouter.
     const response = await ZenoAgent.respond(this.brain, Object.assign({
       text, conversation: history, memories: relevant
     }, runtimeOpts));
+    // v0.14: the agent loop asked for a yes/no before a consequential
+    // tool (e.g. setting a reminder). Bridge it into the existing pending
+    // confirmation flow — Andrew's tap decides, nothing runs without it.
+    if (response.pendingConfirm){
+      const pc = response.pendingConfirm;
+      const toolEntry = ZenoAgent.TOOLS[pc.name];
+      ZenoTools.pending = {
+        summary: pc.summary,
+        tool: { run: async (a) => {
+          const r = await toolEntry.run(a);
+          return { text: r.text, memoriesSaved: r.memoriesSaved || 0, toolNote: r.chip || null };
+        }},
+        args: pc.args
+      };
+      this.conversation.push({ role: "zeno", text: response.text });
+      updateMoodMeta();
+      return { text: response.text, memoriesSaved: saved.length, moodEvents,
+        retried: !!response.retried, brainTier: response.brainTier || runtimeOpts.brainTier || "medium" };
+    }
     this.conversation.push({ role: "zeno", text: response.text });
     updateMoodMeta();
     return { text: response.text, memoriesSaved: saved.length, moodEvents,
@@ -3045,6 +3112,9 @@ const ZenoVoice = {
       rec.interimResults = true;
       rec.maxAlternatives = 1;
       this._finalText = "";
+      // v0.13: carry-over — if Andrew tapped during the end-of-thought
+      // grace to keep talking, the unsent text seeds this turn.
+      if (this._carryText){ this._finalText = this._carryText; this._carryText = ""; }
       rec.onresult = e => {
         if (generation !== this._recognitionGeneration) return;
         this._pokeSilenceTimer(rec);
@@ -3055,7 +3125,12 @@ const ZenoVoice = {
           if (r.isFinal) this._finalText += (r[0] && r[0].transcript) || "";
           else interim += (r[0] && r[0].transcript) || "";
         }
-        input.value = (this._finalText + " " + interim).trim();
+        // v0.13: name mapping — what Andrew sees is what the brain gets.
+        var composed = (this._finalText + " " + interim).trim();
+        try {
+          if (window.ZenoLiveChat2) composed = window.ZenoLiveChat2.ZenoName.normalize(composed).text;
+        } catch(e){}
+        input.value = composed;
       };
       rec.onerror = e => {
         if (generation !== this._recognitionGeneration) return;
@@ -3075,16 +3150,22 @@ const ZenoVoice = {
         if (wasListening && text){
           input.value = text;
           this.lastInputWasVoice = true;
+          // v0.13: seed the carry-over — if Andrew taps the orb during the
+          // grace window to keep talking, this turn's text isn't lost.
+          this._carryText = text;
           // Turn-taking grace: don't answer the instant recognition ends.
-          // Andrew gets ~800 ms to continue before Zeno takes the turn.
+          // v0.13: conversation mode gives Andrew ~2.5s to keep thinking
+          // out loud instead of cutting him off.
           this._setState("thinking", "Waiting for the end of your thought…");
           clearTimeout(this._turnTimer);
+          const graceMs = this._pauseCfg().graceMs;
           this._turnTimer = setTimeout(() => {
             this._turnTimer = null;
+            this._carryText = ""; // sent — nothing left to carry
             /* v0.12: conversation-mode hook (no-op unless active). */
             try { if (window.ZenoConverse) window.ZenoConverse.onThinking(); } catch(e){}
             if (!this._listening) generate();
-          }, 800);
+          }, graceMs);
         } else if (wasListening && !text){
           /* v0.12: in conversation mode a quiet turn just listens again. */
           if (window.ZenoConverse && window.ZenoConverse.active){
@@ -3109,10 +3190,20 @@ const ZenoVoice = {
     }
   },
 
-  // iOS doesn't always end on silence — stop it ourselves after 7 quiet seconds.
+  // iOS doesn't always end on silence — stop it ourselves after a quiet
+  // stretch. v0.13: conversation mode is far more patient (20s) so
+  // thinking out loud stays one turn; single shots stay snappy (9s).
+  _pauseCfg(){
+    try {
+      if (window.ZenoLiveChat2)
+        return window.ZenoLiveChat2.pauseConfig(!!(window.ZenoConverse && window.ZenoConverse.active));
+    } catch(e){}
+    return { silenceMs: 9000, graceMs: 800 };
+  },
   _pokeSilenceTimer(rec){
     clearTimeout(this._silenceTimer);
-    this._silenceTimer = setTimeout(() => { try { rec.stop(); } catch(e){} }, 7000);
+    const ms = this._pauseCfg().silenceMs;
+    this._silenceTimer = setTimeout(() => { try { rec.stop(); } catch(e){} }, ms);
   },
 
   stopListening(){
@@ -3241,7 +3332,95 @@ const ZenoVoice = {
     } catch(e){ this._speechDone(); }
   },
 
+  /* ---- live-chat v2: streaming TTS ("speak as it thinks") ----
+   * generate() feeds cumulative streamed text through feedStream();
+   * complete sentences are spoken as they arrive instead of waiting for
+   * the whole reply — first spoken word in ~1s. Per-sentence barge-in:
+   * tap the orb (stop()) and the unspoken queue is dropped instantly. */
+  _sqReset(){
+    this._sq = [];
+    this._sqSpeaking = false;
+    this._sqFinal = false;
+    this._sqSpoken = 0;
+    this._sqChunker = null;
+  },
+
+  streamReset(){ this._sqReset(); },
+
+  feedStream(cumulativeText){
+    if (!this.outputSupported) return;
+    if (!this._sqChunker){
+      if (!window.ZenoLiveChat2) return;
+      this._sqChunker = window.ZenoLiveChat2.createChunker();
+    }
+    var sentences = [];
+    try { sentences = this._sqChunker.push(cumulativeText); } catch(e){}
+    for (var i = 0; i < sentences.length; i++) this._sq.push(sentences[i]);
+    this._pumpStreamQueue();
+  },
+
+  endStream(finalText){
+    // The final cumulative text can carry a tail the last onToken didn't
+    // (or endStream is called without any feedStream at all) — push it
+    // through the chunker first, then flush. Duplicate pushes are no-ops.
+    var rest = [];
+    try {
+      if (this._sqChunker){
+        var more = this._sqChunker.push(finalText) || [];
+        for (var i = 0; i < more.length; i++) this._sq.push(more[i]);
+        rest = this._sqChunker.flush();
+      }
+    } catch(e){}
+    for (var i = 0; i < rest.length; i++) this._sq.push(rest[i]);
+    this._sqChunker = null;
+    this._sqFinal = true;
+    // Signature-voice seam: if NOTHING has been spoken yet and the whole
+    // reply matches a Twenty clip, play the clip instead of the queue.
+    var clean = String(finalText || "").replace(/[*_#>`]/g, "").trim();
+    var clip = this._signatureClipFor(clean);
+    if (clip && this._sqSpoken === 0 && !this._sqSpeaking){
+      this._sqReset();
+      this.speak(finalText);
+      return;
+    }
+    this._pumpStreamQueue();
+  },
+
+  _pumpStreamQueue(){
+    if (this._sqSpeaking) return;
+    if (!this._sq || !this._sq.length){
+      if (this._sqFinal){ this._sqReset(); this._speechDone(); }
+      return;
+    }
+    var sentence = this._sq.shift();
+    var clean = String(sentence).replace(/[*_#>`]/g, "").slice(0, 1200);
+    if (!clean){ this._pumpStreamQueue(); return; }
+    var self = this;
+    try {
+      if (!this._speaking){
+        this._speaking = true;
+        /* v0.13: conversation-mode hook (no-op unless active). */
+        try { if (window.ZenoConverse) window.ZenoConverse.onSpeaking(); } catch(e){}
+        this._setState("speaking", "Zeno is speaking");
+        var logo = document.querySelector(".logo");
+        if (logo) logo.classList.add("speaking");
+      }
+      var u = new SpeechSynthesisUtterance(clean);
+      var v = this._pickVoice();
+      if (v) u.voice = v;
+      u.lang = (v && v.lang) || "en-US";
+      try { u.rate = (window.ZenoEmotion ? window.ZenoEmotion.voiceSpeed() : 107) / 100; }
+      catch(e){ u.rate = 1.07; }
+      u.pitch = 1;
+      u.onend = function(){ self._sqSpeaking = false; self._sqSpoken++; self._pumpStreamQueue(); };
+      u.onerror = function(){ self._sqSpeaking = false; self._pumpStreamQueue(); };
+      this._sqSpeaking = true;
+      speechSynthesis.speak(u);
+    } catch(e){ this._sqSpeaking = false; this._pumpStreamQueue(); }
+  },
+
   stop(){
+    this._sqReset(); // live-chat v2: drop any unspoken streamed sentences
     try { if (this.outputSupported) speechSynthesis.cancel(); } catch(e){}
     if (this._signatureAudio){
       try { this._signatureAudio.pause(); this._signatureAudio.currentTime = 0; } catch(e){}
@@ -3278,8 +3457,12 @@ const ZenoVoice = {
 // the reply bubble. Voice uses this exact path, so it is never slower than text.
 // /imagine stays available before brain initialization.
 async function generate(){
-  const text = input.value.trim();
-  if (!text) return;
+  const rawText = input.value.trim();
+  if (!rawText) return;
+  // v0.13: name mapping — "xeno"/"zino"/"zulu"/... always arrive as "Zeno".
+  var text = rawText;
+  try { if (window.ZenoLiveChat2) text = window.ZenoLiveChat2.ZenoName.normalize(rawText).text; } catch(e){}
+  ZenoVoice._carryText = ""; // consumed — nothing left to carry
 
   const command = BrainRouter.command(text);
   if (command){
@@ -3304,6 +3487,32 @@ async function generate(){
 
   const viaVoice = ZenoVoice.lastInputWasVoice;
   ZenoVoice.lastInputWasVoice = false;
+  // v0.14 (agent router): ToolRouter runs BEFORE BrainRouter. Unambiguous
+  // safe-tool turns ("12*8+3", "what time is it", "remember that ...") skip
+  // the brain entirely — no model warmup, instant answer, still spoken.
+  if (window.ZenoToolRouter){
+    const routed = ZenoToolRouter.route(text);
+    if (routed && routed.mode === "tool-only" && routed.call &&
+        ZenoAgent.TOOLS[routed.call.name] &&
+        ZenoToolRouter.permissionOf(routed.call.name) === "auto"){
+      if (generating) return;
+      generating = true; send.disabled = true; input.disabled = true;
+      add("user", text); input.value = "";
+      try{
+        const res = await ZenoAgent.TOOLS[routed.call.name].run(routed.call.args || {});
+        ZenoPrime.conversation.push({ role: "user", text });
+        ZenoPrime.conversation.push({ role: "zeno", text: res.text });
+        add("zeno", res.text, res.chip || null, { brain: "Tool" });
+        if (ZenoVoice.shouldAutoSpeak(viaVoice)) ZenoVoice.speak(res.text);
+        setStatus("Ready");
+      }catch(err){
+        add("zeno", "That didn't work (" + (err && err.message || err) + "). Nothing changed.", null, { error: true });
+      }finally{
+        generating = false; send.disabled = false; send.textContent = "Send"; input.disabled = false; input.focus();
+      }
+      return;
+    }
+  }
   const tier = BrainRouter.pick(text);
   add("user", text); input.value = "";
   setStatus(activeBrain === tier ? "Thinking…" : "Warming up the " + BrainRouter.label(tier).toLowerCase() + " brain…");
@@ -3325,6 +3534,9 @@ async function generate(){
   };
   const beginAttempt = attemptNumber => {
     hideTyping();
+    // v0.13: the anti-repetition retry regenerates a different reply —
+    // drop unspoken sentences from the discarded attempt.
+    if (attemptNumber > 1 && streamVoice) ZenoVoice.streamReset();
     if (!streamBubble){
       streamBubble = add("zeno", "", null, { brain: BrainRouter.label(tier) });
       streamBody = streamBubble.querySelector(".msgtext");
@@ -3332,11 +3544,24 @@ async function generate(){
     streamBody.textContent = attemptNumber > 1 ? "Rephrasing that…" : "";
   };
 
+  let streamVoice = false;
   try{
+    // v0.13: streaming voice — "speak as it thinks". paint() still fills the
+    // bubble; feedStream() speaks each complete sentence as it arrives, so
+    // the first spoken word lands ~1s after generation starts.
+    streamVoice = viaVoice && ZenoVoice.shouldAutoSpeak(true);
+    if (streamVoice) ZenoVoice.streamReset();
+    const onTokenAll = textNow => {
+      paint(textNow);
+      if (streamVoice) ZenoVoice.feedStream(textNow);
+    };
+    const tierPick = BrainRouter.lastPick || { tier: tier, maxTokens: 256 };
     const result = await ZenoPrime.send(text, {
       brainTier: tier,
+      voice: viaVoice,
+      maxTokens: tierPick.maxTokens,
       onAttemptStart: beginAttempt,
-      onToken: paint
+      onToken: onTokenAll
     });
     hideTyping();
     if (result.toolAction){
@@ -3358,7 +3583,8 @@ async function generate(){
         tnote.textContent = result.toolNote;
         streamBubble.appendChild(tnote);
       }
-      if (ZenoVoice.shouldAutoSpeak(viaVoice)) ZenoVoice.speak(result.text);
+      if (streamVoice) ZenoVoice.endStream(result.text);
+      else if (ZenoVoice.shouldAutoSpeak(viaVoice)) ZenoVoice.speak(result.text);
     } else {
       const notes = [result.memoriesSaved ? "(Saved to memory — see the Memory panel.)" : null,
         result.toolNote || null].filter(Boolean).join(" ");
@@ -3372,6 +3598,7 @@ async function generate(){
     if (!result.toolAction) setStatus(BrainRouter.label(activeBrain) + " brain online");
   }catch(err){
     hideTyping();
+    if (streamVoice) ZenoVoice.streamReset(); // don't speak partial sentences after a failure
     if (streamBubble) streamBubble.remove();
     add("zeno", "Generation error: " + (err?.message || String(err)), null, { error: true });
     setStatus("Generation failed");
