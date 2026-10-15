@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.14";
+const ZENO_VERSION = "0.18";
 
 const ZENO_CHANGELOG = [
   {
@@ -227,6 +227,62 @@ const ZENO_CHANGELOG = [
       "Multi-step tool use: up to 4 chained tool calls per turn",
       "Proposed reminders with your yes/no confirmation",
       "Notes for the asking: save, list, search (deletion still needs your tap)"
+    ]
+  }
+  , {
+    version: "0.15",
+    date: "2026-10-15",
+    headline: "Sharper brain, same speed — and I finally shut up on cue",
+    whatsNew: [
+      "My Medium brain upgraded from Qwen3 1.7B to Gemma 2 2B — noticeably smarter answers at the same size, so no extra waiting. Quick hellos still use the instant tiny brain.",
+      "I learned from examples now, not just rules: my prompt shows me exactly how to sound — react first, keep it short, and never confuse myself with you.",
+      "New anti-ramble rule: one breath per reply. A short message from you gets a short answer, not a lecture."
+    ],
+    abilities: [
+      "Smarter Medium brain (Gemma 2 2B) with the same fast/medium/slow routing",
+      "Tighter voice: short replies stay short, identity stays Zeno"
+    ]
+  }
+  , {
+    version: "0.16",
+    date: "2026-10-15",
+    headline: "An image gallery that never forgets",
+    whatsNew: [
+      "Every image I make is now saved to a gallery on this iPad — swipe the app away, come back, they're all still here.",
+      "New Gallery button: browse everything I've drawn, tap the heart to like one, tap x to delete one.",
+      "Liked images are never auto-removed; the gallery keeps the 200 most recent otherwise."
+    ],
+    abilities: [
+      "Image gallery with likes and per-image delete, persisted on-device",
+      "Images survive the app being closed and reopened"
+    ]
+  }
+  , {
+    version: "0.17",
+    date: "2026-10-15",
+    headline: "A style book made of your own drawings",
+    whatsNew: [
+      "New Style button: upload your own drawings, describe each style in your words, and set one active — every /imagine I make then uses YOUR palette and YOUR style.",
+      "I pull the dominant colors straight out of your drawing on this iPad; nothing ever leaves the device.",
+      "Honest boundary, stated in the panel too: this is style-reference prompting, not model training. Real fine-tuning waits for the muscle box."
+    ],
+    abilities: [
+      "Style book: samples with palettes + your descriptors, one active at a time",
+      "Active sample auto-steers every generated image"
+    ]
+  }
+  , {
+    version: "0.18",
+    date: "2026-10-15",
+    headline: "Fix-it now edits instead of restarting",
+    whatsNew: [
+      "Tap Fix it and describe the tweak — I rebuild the image on the SAME seed, so it stays close to the version you liked instead of becoming a whole new picture.",
+      "New safety check: if my rewrite drifts away from your original idea, I throw it out and apply your tweak surgically to the existing prompt.",
+      "Honest label, right in the panel: I can't pixel-edit the image itself in this browser — this is a targeted rebuild. True pixel-editing waits for the muscle box."
+    ],
+    abilities: [
+      "Same-seed image tweaks that feel like edits",
+      "Drift guard: rewrites that lose your idea are rejected automatically"
     ]
   }
 ];
