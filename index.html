@@ -55,6 +55,9 @@
 <script src="assets/zeno-converse.js"></script>
 <script src="assets/zeno-livechat2.js"></script>
 <script src="assets/zeno-toolrouter.js"></script>
+<script src="assets/zeno-gallery.js"></script>
+<script src="assets/zeno-stylebook.js"></script>
+<script src="assets/zeno-fixguard.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -77,6 +80,31 @@ main{max-width:1000px;margin:auto;padding:18px}
 .msg img{max-width:100%;border-radius:12px;display:block;margin:8px 0;box-shadow:0 4px 18px #0008}
 .imgrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px}
 .imgrow button{margin-top:0;font-size:13px;padding:9px 12px}
+.gallerygrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.gcard{position:relative;border:1px solid #2a3550;border-radius:10px;overflow:hidden;background:#0d1424}
+.gcard img{width:100%;height:auto;display:block;aspect-ratio:1/1;object-fit:cover}
+.gcard .gbar{display:flex;gap:4px;align-items:center;padding:4px 6px}
+.gcard .gbar button{font-size:12px;padding:5px 8px;margin:0}
+.gcard .gcap{font-size:10px;color:#8fa0c0;padding:0 6px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#galleryPanel{display:none}
+#galleryPanel.open{display:block}
+#stylePanel{display:none;border-top:1px solid #1b2a35;padding:14px 18px;background:#0a1219}
+#stylePanel.open{display:block}
+#stylePanel h3{margin:0 0 8px;font-size:14px;color:#9fb2bf}
+.stylerow{display:flex;gap:8px;margin:8px 0}
+.stylerow input[type=text]{flex:1}
+#styleDesc{width:100%;box-sizing:border-box;margin:4px 0}
+.stylelist{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.scard{display:flex;gap:10px;align-items:center;border:1px solid #2a3550;border-radius:10px;padding:8px;background:#0d1424}
+.scard img{width:56px;height:56px;object-fit:cover;border-radius:8px;flex:none}
+.scard .smeta{flex:1;min-width:0}
+.scard .sname{font-size:13px;font-weight:600}
+.scard .sdesc{font-size:11px;color:#8fa0c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.swatchrow{display:flex;gap:4px;margin-top:4px}
+.swatch{width:16px;height:16px;border-radius:4px;border:1px solid #0006}
+.scard .sact{font-size:12px;padding:6px 10px;margin:0 4px 0 0}
+.scard .sact.on{border-color:#7fd08f;color:#7fd08f}
+#styleMsg{min-height:18px}
 .imgstatus{font-size:13px;color:#8fa6b4}
 .imgfix{display:grid;gap:8px;width:100%;margin-top:10px;padding-top:10px;border-top:1px solid #263743}
 .imgfix[hidden]{display:none}
@@ -251,6 +279,8 @@ button:disabled{opacity:.5}
     <button id="clear" class="secondary">Clear chat</button>
     <button id="memToggle" class="secondary">Memory</button>
     <button id="imagineBtn" class="secondary" title="Make an image: /imagine a black dragon at sunset">Imagine</button>
+    <button id="galleryBtn" class="secondary" title="Browse every image Zeno has made — saved on this iPad">🖼 Gallery</button>
+    <button id="styleBtn" class="secondary" title="Your samples: teach Zeno your art style from your own drawings">🎨 Style</button>
     <button id="referenceBtn" class="secondary" title="Attach a photo as an optional visual reference">Attach reference</button>
     <input type="file" id="referenceInput" accept="image/png,image/jpeg,image/webp" style="display:none">
     <button id="browseBtn" class="secondary" title="Ask Zeno to research the web">Browse</button>
@@ -295,6 +325,29 @@ button:disabled{opacity:.5}
       <button id="memClear" class="secondary">Forget all</button>
     </div>
     <div class="small" id="memoryStorageNote">Memory stays on this device and is never sent anywhere. I keep everything you tell me to remember until you tell me to forget — say “forget …” anytime. Export a JSON backup or save a readable memory text file whenever you want a portable copy.</div>
+  </div>
+  <div id="galleryPanel">
+    <h3>Image gallery <span id="galleryCount"></span></h3>
+    <div class="small" id="galleryNote">Every image Zeno makes is saved here on this iPad — swipe the app away, come back, they're still here. Tap ♥ to like one (liked images are never auto-removed).</div>
+    <div id="galleryGrid" class="gallerygrid"></div>
+    <div class="memrow">
+      <button id="galleryClose" class="secondary">Close</button>
+    </div>
+  </div>
+  <div id="stylePanel">
+    <h3>Style book <span id="styleCount"></span></h3>
+    <div class="small" id="styleHonesty">Upload your own drawings and describe each style in your words — the active sample steers every /imagine I make. Honest boundary: this is style-reference prompting, not model training. Your samples shape my art direction; no pixels train any model. Real fine-tuning waits for the muscle box.</div>
+    <div class="stylerow">
+      <input type="file" id="styleFile" accept="image/png,image/jpeg,image/webp">
+      <input type="text" id="styleName" maxlength="80" placeholder="Name it — e.g. Ink dragon">
+    </div>
+    <textarea id="styleDesc" rows="2" maxlength="300" placeholder="Describe this style in your words — e.g. bold ink outlines, flat colors, dramatic sunset palette"></textarea>
+    <div class="memrow">
+      <button id="styleAddBtn">Add sample</button>
+      <button id="styleClose" class="secondary">Close</button>
+    </div>
+    <div class="small" id="styleMsg"></div>
+    <div id="styleList" class="stylelist"></div>
   </div>
   <div id="voicePanel">
     <h3>Voice <span class="vhint">on-device</span></h3>
@@ -393,13 +446,17 @@ window.ZenoSignatureVoiceClips = [
    ============================================================ */
 
 // ---- Load-bearing configuration (WebLLM stays pinned for stability) ----
-// All three IDs ship in WebLLM 0.2.82's prebuilt registry. Qwen3-4B exists,
-// but its Q4 weights + runtime/KV overhead are not a safe fit across iPad
-// Safari's tighter WebGPU memory budgets. The 3B Q4 model is the strongest
-// tier we can responsibly auto-load without turning "slow" into "crash".
+// v0.15 brain retune: Medium moves Qwen3-1.7B -> gemma-2-2b-it. Gemma 2 2B is
+// the best-evidenced ~2B model in WebLLM 0.2.82's prebuilt registry (strong
+// MMLU/GSM8K for its size, excellent instruction-following) at the same
+// memory class as the 1.7B it replaces — smarter answers, similar latency.
+// Fast stays SmolLM2-360M (a "hi" must stay instant — Andrew's 2026-10-14
+// rule). Slow stays Qwen2.5-3B: Qwen3-4B's Q4 weights + runtime/KV overhead
+// are still not a safe fit for iPad Safari's WebGPU memory budgets, so 3B
+// remains the strongest tier we can responsibly auto-load.
 const BRAIN_TIERS = {
   fast:   { id: "SmolLM2-360M-Instruct-q4f16_1-MLC", label: "Fast", detail: "SmolLM2 360M · Q4" },
-  medium: { id: "Qwen3-1.7B-q4f16_1-MLC", label: "Medium", detail: "Qwen3 1.7B · Q4" },
+  medium: { id: "gemma-2-2b-it-q4f16_1-MLC", label: "Medium", detail: "Gemma 2 2B · Q4" },
   slow:   { id: "Qwen2.5-3B-Instruct-q4f16_1-MLC", label: "Slow", detail: "Qwen2.5 3B · Q4" }
 };
 const WEBLLM_URL = "assets/webllm-0.2.82.iife.js";
@@ -436,6 +493,25 @@ const CONTINUITY_RULES =
   "When he shares something personal, acknowledge it like a friend would before moving on. " +
   "Ask a real follow-up question when the conversation invites one — curious, never interrogating, and not every turn. " +
   "If you're unsure what he means, say what you heard and ask, in the same breath — never build on a shaky guess.";
+// v0.15 few-shot voice lock: three short exchanges that ARE the target voice.
+// Small models imitate examples better than they follow abstract rules, so
+// these carry the react-first, short-reply, identity-tight behavior directly.
+const FEW_SHOT_EXAMPLES =
+  "FEW-SHOT — this is exactly how you sound. Match the voice, not the words:\n" +
+  "Andrew: hi\n" +
+  "Zeno: Hey Andrew. What's cooking?\n" +
+  "Andrew: who are you\n" +
+  "Zeno: Zeno — your local dragon-brain. Definitely not Andrew; he's the one typing.\n" +
+  "Andrew: my sparring looks ugly compared to my wushu forms\n" +
+  "Zeno: That's not ugly, that's unscripted. Sparring is problem-solving at speed — of course it's messier than a choreographed form. The mess IS the training.\n" +
+  "Notice: react first, then substance. Short in, short out. Roast the IDEA when it's shaky, never Andrew.";
+// v0.15 anti-ramble: the old prompt said \"match Andrew's length\" but the
+// model still lectured. This makes brevity a hard rule with a concrete test.
+const ANTI_RAMBLE =
+  "ANTI-RAMBLE (hard): one breath per reply — make the point, then stop. " +
+  "If his message is under 15 words, answer in kind: a sentence gets sentences, never a paragraph. " +
+  "Lists only when he asks for steps, options, or a plan; otherwise talk like a person, not a manual. " +
+  "Never restate his question back at him before answering.";
 // v0.14 tool protocol (agent router): the model now also gets notes and
 // reminder_set. Prompt-based, not native function calling: the model emits
 // one TOOL line per step, the runtime executes it visibly and feeds the
@@ -469,7 +545,7 @@ const BASE_SYSTEM_PROMPT =
   "Names for the known: call Andrew by his name. People you do not know get role labels (\"a visitor\", \"unknown person\") until you know them. " +
   "HONESTY ABOUT FEELINGS: you run a SIMULATED mood engine — a small state vector, not consciousness. " +
   "You may talk about your simulated mood like weather, but NEVER claim to truly feel emotions, to be conscious, or to be alive. " +
-  VARIETY_RULES + CONTINUITY_RULES;
+  VARIETY_RULES + CONTINUITY_RULES + "\n\n" + FEW_SHOT_EXAMPLES + "\n\n" + ANTI_RAMBLE;
 
 // ---- Engine state: one hot model at a time; browser cache holds downloads ----
 let webllm = null;
@@ -2611,7 +2687,14 @@ async function rewriteImagineFix(original, currentPrompt, flaw, previousNegative
   let revised = parseFixField(raw, "PROMPT", "NEGATIVE").slice(0, 1100);
   let negative = parseFixField(raw, "NEGATIVE", "CHANGE").replace(/[.;]+$/, "").slice(0, 500);
   let change = parseFixField(raw, "CHANGE", null).replace(/\s+/g, " ").slice(0, 180);
-  if (!revised) revised = currentPrompt + ". Apply this correction exactly: " + flaw + ". Preserve every other requested detail.";
+  // v0.18 fix-it guard: "apply just this tweak". If the model's rewrite kept
+  // the essence of the original request, use it; if it drifted (or failed),
+  // fall back to a surgical append so the result feels like an edit.
+  if (window.ZenoFixGuard){
+    revised = window.ZenoFixGuard.decideFixPrompt(original, currentPrompt, revised, flaw);
+  } else if (!revised){
+    revised = currentPrompt + ". Apply this correction exactly: " + flaw + ". Preserve every other requested detail.";
+  }
   if (!negative) negative = fallbackNegativePrompt(flaw, previousNegative);
   if (previousNegative && !negative.toLowerCase().includes(String(previousNegative).toLowerCase()))
     negative = (previousNegative + ", " + negative).slice(0, 500);
@@ -2774,13 +2857,27 @@ async function imagine(prompt, opts){
       return;
     }
     blobUrl = URL.createObjectURL(blob);
+    // v0.16: every finished image is saved to the on-device gallery
+    // (IndexedDB), so it survives the app being swiped away and reopened.
+    // Fire-and-forget — a gallery failure never blocks the chat display.
+    if (window.ZenoGallery){
+      try{
+        const fr = new FileReader();
+        fr.onload = () => {
+          window.ZenoGallery.defaultGallery().save({
+            dataUrl: String(fr.result || ""), prompt: prompt, seed: activeSeed
+          }).catch(e => console.warn("Gallery save failed:", e));
+        };
+        fr.readAsDataURL(blob);
+      }catch(e){ console.warn("Gallery save failed:", e); }
+    }
     const img = document.createElement("img");
     img.alt = prompt;
     img.onload = () => {
       statusEl.textContent = finishedMessage || "Finished";
       mediaSlot.appendChild(img);
       caption.textContent = "“" + prompt + "” · " + (enhanced || fixCount ? "art-directed by Zeno · " : "exact prompt · ") +
-        (referenceInfo ? "reference palette only · " : "") + (fixCount ? "fix " + fixCount + " · " : "") + "seed " + activeSeed;
+        (referenceInfo ? "reference palette only · " : "") + (styleNote ? "style book · " : "") + (fixCount ? "fix " + fixCount + " · " : "") + "seed " + activeSeed;
       row.style.display = "flex";
       saveBtn.style.display = "inline-block";
       fixBtn.style.display = "inline-block";
@@ -2813,10 +2910,10 @@ async function imagine(prompt, opts){
   fixBtn.addEventListener("click", () => {
     fixPanel.hidden = false;
     if (!ImagineFixSession.honestyShown){
-      fixNote.textContent = "I can't see the image yet — describe what's wrong and I'll fix it.";
+      fixNote.textContent = "I can't pixel-edit the image itself in this browser — describe the tweak and I'll rebuild it on the same seed so it stays close to this version. (True pixel-editing waits for the muscle box.)";
       ImagineFixSession.honestyShown = true;
     } else {
-      fixNote.textContent = "Describe the one thing you want changed. I'll preserve the rest.";
+      fixNote.textContent = "Same seed, just your tweak — describe the one thing to change and I'll preserve the rest.";
     }
     fixInput.focus();
     scrollToLatest();
@@ -2849,7 +2946,11 @@ async function imagine(prompt, opts){
       negativePrompt = result.negative;
       fixCount += 1;
       enhanced = true;
-      const nextSeed = result.structural ? newImagineSeed() : activeSeed;
+      // v0.18: tweaks keep the seed (same composition family — feels like an
+      // edit); structural flaws get a fresh seed so the flaw doesn't repeat.
+      const nextSeed = window.ZenoFixGuard
+        ? window.ZenoFixGuard.fixSeedFor(result.structural, activeSeed, newImagineSeed)
+        : (result.structural ? newImagineSeed() : activeSeed);
       const working = result.structural
         ? "Rebuilding with a new seed so the structural flaw doesn't keep repeating…"
         : "Keeping the seed and changing only what you described…";
@@ -2879,6 +2980,10 @@ async function imagine(prompt, opts){
 
   const enhancement = await enhanceImaginePrompt(prompt, referenceInfo);
   currentArtPrompt = enhancement.prompt + (referenceInfo ? ". " + referenceInfo : "");
+  // v0.17: the active style-book sample steers the art direction — palette
+  // hexes + Andrew's own descriptors, injected as style reference only.
+  const styleNote = (window.ZenoStyleBook && window.ZenoStyleBook.defaultStyleBook().activeNote()) || "";
+  if (styleNote) currentArtPrompt += " " + styleNote;
   originalArtPrompt = currentArtPrompt;
   enhanced = enhancement.enhanced;
   originalEnhanced = enhanced;
@@ -3706,6 +3811,183 @@ $("loyalBtn").addEventListener("click", () => {
     ? "Loyal Opposition is on. I'll argue the other side of your ideas — steelman, never strawman, and I'll drop it when the idea survives."
     : "Loyal Opposition is off. Back to your corner.");
 });
+
+/* ============================================================
+   v0.16 image gallery UI — browse, like, delete. Images live in
+   IndexedDB via window.ZenoGallery; the panel is a read view.
+   ============================================================ */
+async function renderGallery(){
+  const grid = $("galleryGrid"), count = $("galleryCount");
+  if (!grid || !window.ZenoGallery) return;
+  grid.innerHTML = "";
+  try{
+    const items = await window.ZenoGallery.defaultGallery().list();
+    if (count) count.textContent = "(" + items.length + ")";
+    if (!items.length){
+      grid.innerHTML = '<div class="small">No images yet — try: /imagine a black dragon at sunset</div>';
+      return;
+    }
+    for (const rec of items){
+      const card = document.createElement("div");
+      card.className = "gcard";
+      const img = document.createElement("img");
+      img.src = rec.dataUrl; img.alt = rec.prompt || "Zeno image"; img.loading = "lazy";
+      const bar = document.createElement("div");
+      bar.className = "gbar";
+      const like = document.createElement("button");
+      like.className = "secondary";
+      like.textContent = rec.liked ? "♥ Liked" : "♡ Like";
+      like.title = "Like this image (liked images are never auto-removed)";
+      like.addEventListener("click", async () => {
+        try{
+          const now = await window.ZenoGallery.defaultGallery().toggleLike(rec.id);
+          like.textContent = now ? "♥ Liked" : "♡ Like";
+        }catch(e){ console.warn("Gallery like failed:", e); }
+      });
+      const del = document.createElement("button");
+      del.className = "secondary";
+      del.textContent = "✕";
+      del.title = "Delete this image";
+      del.addEventListener("click", async () => {
+        try{
+          await window.ZenoGallery.defaultGallery().remove(rec.id);
+          card.remove();
+          if (count) count.textContent = "(" + grid.querySelectorAll(".gcard").length + ")";
+        }catch(e){ console.warn("Gallery delete failed:", e); }
+      });
+      bar.append(like, del);
+      const cap = document.createElement("div");
+      cap.className = "gcap";
+      cap.textContent = (rec.prompt || "") + (rec.seed != null ? " · seed " + rec.seed : "");
+      cap.title = rec.prompt || "";
+      card.append(img, bar, cap);
+      grid.appendChild(card);
+    }
+  }catch(e){
+    grid.innerHTML = '<div class="small">Gallery unavailable: ' + ((e && e.message) || e) + "</div>";
+  }
+}
+$("galleryBtn").addEventListener("click", () => {
+  togglePanel("galleryPanel");
+  if ($("galleryPanel").classList.contains("open")) renderGallery();
+});
+$("galleryClose").addEventListener("click", () => togglePanel("galleryPanel"));
+
+/* ============================================================
+   v0.17 style book UI — Andrew's samples steer Zeno's art.
+   Palette extraction reuses the on-device extractReferencePalette;
+   thumbnails are downscaled to 96px so the book stays light.
+   ============================================================ */
+function styleMsg(t){ const el = $("styleMsg"); if (el) el.textContent = t || ""; }
+async function makeSampleThumb(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = 96; canvas.height = 96;
+    const ctx = canvas.getContext("2d");
+    const s = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 96, 96);
+    return canvas.toDataURL("image/jpeg", 0.7);
+  } finally { URL.revokeObjectURL(url); }
+}
+async function renderStyleBook(){
+  const list = $("styleList"), count = $("styleCount");
+  if (!list || !window.ZenoStyleBook) return;
+  list.innerHTML = "";
+  try{
+    const samples = await window.ZenoStyleBook.defaultStyleBook().list();
+    if (count) count.textContent = "(" + samples.length + ")";
+    if (!samples.length){
+      list.innerHTML = '<div class="small">No samples yet — upload one of your drawings above and describe its style.</div>';
+      return;
+    }
+    for (const s of samples){
+      const card = document.createElement("div");
+      card.className = "scard";
+      if (s.thumb){
+        const t = document.createElement("img");
+        t.src = s.thumb; t.alt = s.name;
+        card.appendChild(t);
+      }
+      const meta = document.createElement("div");
+      meta.className = "smeta";
+      const nm = document.createElement("div");
+      nm.className = "sname";
+      nm.textContent = s.name + (s.active ? " ✓ active" : "");
+      const ds = document.createElement("div");
+      ds.className = "sdesc";
+      ds.textContent = s.descriptors || "(no description)";
+      ds.title = s.descriptors || "";
+      const sw = document.createElement("div");
+      sw.className = "swatchrow";
+      for (const hex of (s.palette || [])){
+        const d = document.createElement("div");
+        d.className = "swatch";
+        d.style.background = hex;
+        d.title = hex;
+        sw.appendChild(d);
+      }
+      meta.append(nm, ds, sw);
+      const act = document.createElement("button");
+      act.className = "sact secondary" + (s.active ? " on" : "");
+      act.textContent = s.active ? "Active ✓" : "Set active";
+      act.title = "Use this sample's style for every /imagine";
+      act.addEventListener("click", async () => {
+        try{
+          await window.ZenoStyleBook.defaultStyleBook().setActive(s.active ? null : s.id);
+          renderStyleBook();
+        }catch(e){ styleMsg("Couldn't switch: " + ((e && e.message) || e)); }
+      });
+      const del = document.createElement("button");
+      del.className = "sact secondary";
+      del.textContent = "Remove";
+      del.addEventListener("click", async () => {
+        try{
+          await window.ZenoStyleBook.defaultStyleBook().remove(s.id);
+          renderStyleBook();
+        }catch(e){ styleMsg("Couldn't remove: " + ((e && e.message) || e)); }
+      });
+      card.append(meta, act, del);
+      list.appendChild(card);
+    }
+  }catch(e){
+    list.innerHTML = '<div class="small">Style book unavailable: ' + ((e && e.message) || e) + "</div>";
+  }
+}
+$("styleAddBtn").addEventListener("click", async () => {
+  if (!window.ZenoStyleBook){ styleMsg("Style book module not loaded."); return; }
+  const file = $("styleFile").files && $("styleFile").files[0];
+  const name = ($("styleName").value || "").trim();
+  const desc = ($("styleDesc").value || "").trim().slice(0, 300);
+  if (!file){ styleMsg("Choose one of your drawings first."); return; }
+  if (!/^image\/(png|jpeg|webp)$/i.test(file.type || "")){ styleMsg("PNG, JPEG, or WebP only."); return; }
+  if (file.size > 10 * 1024 * 1024){ styleMsg("Over 10 MB — pick a smaller file."); return; }
+  styleMsg("Reading your sample…");
+  let palette = [];
+  try { palette = await extractReferencePalette(file) || []; } catch(e){ palette = []; }
+  let thumb = "";
+  try { thumb = await makeSampleThumb(file); } catch(e){ thumb = ""; }
+  try{
+    const sb = window.ZenoStyleBook.defaultStyleBook();
+    const n = (await sb.list()).length;
+    await sb.addSample({ name: name || ("Sample " + (n + 1)), palette, descriptors: desc, thumb });
+    $("styleFile").value = ""; $("styleName").value = ""; $("styleDesc").value = "";
+    styleMsg("Saved ✓ — tap Set active and every /imagine will use its style.");
+    renderStyleBook();
+  }catch(e){ styleMsg("Couldn't save: " + ((e && e.message) || e)); }
+});
+$("styleBtn").addEventListener("click", () => {
+  togglePanel("stylePanel");
+  if ($("stylePanel").classList.contains("open")){ styleMsg(""); renderStyleBook(); }
+});
+$("styleClose").addEventListener("click", () => togglePanel("stylePanel"));
+// v0.17: warm the active-sample cache at startup so /imagine picks it up.
+if (window.ZenoStyleBook){
+  window.ZenoStyleBook.defaultStyleBook().refreshActive().catch(e => console.warn("Style book init:", e));
+}
 
 /* ---- memory panel UI ---- */
 function renderMemoryPanel(){
