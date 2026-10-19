@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.19";
+const ZENO_VERSION = "0.19.1";
 
 const ZENO_CHANGELOG = [
   {
@@ -300,6 +300,20 @@ const ZENO_CHANGELOG = [
       "Propose new tools for Andrew's approval (proposal card with what + why)",
       "Learned tools persist on this device and appear in \"what can you do?\"",
       "Rejections are remembered — no re-proposing"
+    ]
+  },
+  {
+    version: "0.19.1",
+    date: "2026-10-15",
+    headline: "My fast brain couldn't hold all its instructions — learning uses the bigger brain now",
+    whatsNew: [
+      "My fast brain is tiny — 2048 tokens — and my instructions outgrew it, so asking me to learn something made it error out instead of answering. Fair catch, fixed.",
+      "Learning something new (\"you should learn to X\") now always uses my bigger brain, never the fast one. The learning conversation needs the smarts anyway.",
+      "My fast brain keeps a one-line note about learning instead of the whole rulebook, and there's a guard that checks the prompt fits before I even try — so that error shouldn't come back."
+    ],
+    abilities: [
+      "\"you should learn to X\" always runs on the bigger brain",
+      "Prompt-size guard: I check the fit before generating, and trim old chat history instead of erroring"
     ]
   }
 ];

@@ -59,6 +59,7 @@
 <script src="assets/zeno-stylebook.js"></script>
 <script src="assets/zeno-fixguard.js"></script>
 <script src="assets/zeno-toolproposals.js"></script>
+<script src="assets/zeno-promptbudget.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -616,6 +617,18 @@ const BrainRouter = {
   pin: null,
   lastPick: null, // {tier, maxTokens, reason} — set by pick(), read by generate()
   pick(text){
+    // v0.19.1: "you should learn to X" force-escalates off Fast — the tiny
+    // brain's 2048-token window cannot hold the learn prompt (real overflow
+    // reported 2026-10-15). This overrides even a /fast pin: a pinned Fast
+    // would throw instead of answering, so Medium-or-better is mandatory.
+    if (window.ZenoPromptBudget){
+      const start = (this.pin && BRAIN_TIERS[this.pin]) ? this.pin : "fast";
+      const forced = window.ZenoPromptBudget.escalateForLearnRequest(text, start);
+      if (forced !== start){
+        this.lastPick = { tier: forced, maxTokens: 256, reason: "learn-escalation" };
+        return forced;
+      }
+    }
     if (this.pin && BRAIN_TIERS[this.pin]){
       this.lastPick = { tier: this.pin, maxTokens: 256, reason: "pinned" };
       return this.pin;
@@ -1101,20 +1114,58 @@ const WebLLMBrainRuntime = {
 
   async respond(request){
     // request includes the routed brain tier plus optional streaming callbacks.
-    await ensureBrain(request.brainTier || "medium");
-    let systemBase = buildSystemPrompt(request.memories, request.toolProtocol === true);
-    // v0.13 (live-chat v2): the name reinforcement is cheap and always true;
-    // voice turns additionally get the spoken-reply style rules.
-    try {
-      if (window.ZenoLiveChat2){
-        systemBase += "\n\n" + window.ZenoLiveChat2.NAME_REINFORCE;
-        if (request.voice) systemBase += "\n\n" + window.ZenoLiveChat2.VOICE_STYLE;
-      }
-    } catch(e){}
-    const history = [];
+    // v0.19.1, second gate: learn requests force-escalate off Fast here too.
+    // (The first gate is BrainRouter.pick; this one also covers a /fast pin
+    // and sees the appended learn prompt, which the detector matches.)
+    let tier = window.ZenoPromptBudget
+      ? window.ZenoPromptBudget.escalateForLearnRequest(request.text, request.brainTier || "medium")
+      : (request.brainTier || "medium");
+    // v0.19.1: tier-scoped system prompt — Fast gets the LEARN line instead
+    // of the full TOOL_PROTOCOL it can no longer fit (real overflow
+    // 2026-10-15). Voice additions ride along so they're inside the budget.
+    const buildBase = (t) => {
+      let sb = buildSystemPrompt(request.memories, request.toolProtocol === true, t);
+      // v0.13 (live-chat v2): the name reinforcement is cheap and always true;
+      // voice turns additionally get the spoken-reply style rules.
+      try {
+        if (window.ZenoLiveChat2){
+          sb += "\n\n" + window.ZenoLiveChat2.NAME_REINFORCE;
+          if (request.voice) sb += "\n\n" + window.ZenoLiveChat2.VOICE_STYLE;
+        }
+      } catch(e){}
+      return sb;
+    };
+    let systemBase = buildBase(tier);
+    let history = [];
     for (const m of request.conversation){
       history.push({ role: m.role === "zeno" ? "assistant" : "user", content: m.text });
     }
+    // v0.19.1: prompt-budget guard — estimate BEFORE generation instead of
+    // letting WebLLM throw. Over ~90% of the tier's window: escalate a tier
+    // (rebuilding the tier-scoped prompt), and on Slow trim chat history
+    // oldest-first, keeping the newest turn. Bounded rounds, then one honest
+    // error only if even that can't fit.
+    if (window.ZenoPromptBudget){
+      const PB = window.ZenoPromptBudget;
+      const estTokens = () => PB.estimateTokens(
+        systemBase + "\n" +
+        history.map(m => m.role + ": " + m.content).join("\n") +
+        "\nuser: " + request.text);
+      let rounds = 0;
+      for (;;){
+        const decision = PB.checkBudget(tier, estTokens());
+        if (decision === "ok" || rounds >= 3) break;
+        rounds++;
+        if (decision === "escalate"){
+          tier = PB.nextTier(tier);
+          systemBase = buildBase(tier);
+          continue;
+        }
+        if (history.length <= 1) break; // never drop the newest turn
+        history = history.slice(1);     // oldest-first truncation
+      }
+    }
+    await ensureBrain(tier);
     const userMsg = { role: "user", content: request.text };
     const streaming = typeof request.onToken === "function";
 
@@ -1186,9 +1237,17 @@ function callbackCandidates(excludeIds, limit = 2){
     .slice(0, limit);
 }
 
-function buildSystemPrompt(memories, withTools){
+function buildSystemPrompt(memories, withTools, tier){
   let prompt = BASE_SYSTEM_PROMPT;
-  if (withTools) prompt += "\n\n" + TOOL_PROTOCOL;
+  // v0.19.1: tier-scoped tool teaching. The full TOOL_PROTOCOL (with the
+  // v0.19 PROPOSE block) no longer fits the Fast brain's 2048-token window
+  // — real overflow reported 2026-10-15 ("you should learn to roll a
+  // twenty-sided die." threw at 2114 tokens). Fast gets one LEARN line;
+  // Medium/Slow keep the full protocol. Falls back to the old behavior if
+  // the prompt-budget module failed to load, so boot never breaks.
+  if (withTools) prompt += "\n\n" + (window.ZenoPromptBudget
+    ? window.ZenoPromptBudget.toolBlockForTier(tier || "medium", TOOL_PROTOCOL)
+    : TOOL_PROTOCOL);
   const facts = MemoryStore.userFacts();
   const rel = (memories || []).filter(m => !facts.some(f => f.id === m.id));
   const fmt = m => "- (" + memoryDateLabel(m.createdAt) + ") " + m.text;
@@ -2648,9 +2707,21 @@ const ZenoPrime = {
     // v0.11 (Phase 1): the agent loop lives here — ZenoAgent adds
     // model-decided tool use around the normal brain generation.
     // v0.14: multi-step + permission-enforced via ZenoToolRouter.
-    const response = await ZenoAgent.respond(this.brain, Object.assign({
+    let response = await ZenoAgent.respond(this.brain, Object.assign({
       text, conversation: history, memories: relevant
     }, runtimeOpts));
+    // v0.19.1: Fast-brain LEARN_LINE punt — a learn request slipped past the
+    // detector (e.g. phrased "teach me to X"). Re-run it on the medium brain
+    // with the learn prompt attached, so the proposal card still appears
+    // instead of Andrew staring at the word "LEARNREQUEST".
+    if (response && typeof response.text === "string" && response.text.trim() === "LEARNREQUEST"
+        && typeof ZenoLearned !== "undefined" && window.ZenoToolProposals){
+      const skill = String(text).trim().replace(/[.?!]+$/, "").slice(0, 200) || "something new";
+      response = await ZenoAgent.respond(this.brain, Object.assign({
+        text: text + "\n\n[" + ZenoLearned.learnPrompt(skill) + "]",
+        conversation: history, memories: relevant
+      }, runtimeOpts, { brainTier: "medium" }));
+    }
     // v0.19: a brain-emitted PROPOSE block becomes a proposal card —
     // validated first, never installed silently, never re-proposed.
     if (typeof ZenoLearned !== "undefined" && window.ZenoToolProposals){
