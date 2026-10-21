@@ -68,7 +68,7 @@
   var REMEMBER_RE = /^(?:please\s+)?remember\s+(that\s+)?(.{2,400})$/i;
   var RECALL_GUARD_RE = /^remember\s+(what|which|when|who|how|where)\b/i; // "remember what I told you" = recall, not save
 
-  function route(text){
+  function route(text, opts){
     var t = String(text || "").trim();
     if (!t) return { mode: "chat" };
 
@@ -87,7 +87,80 @@
         return { mode: "tool-only", call: { name: "memory_save", args: { text: m[2].trim() } } };
       }
     }
+    // v0.19.2: learned tools (installed via propose -> approve) route
+    // BEFORE the brain too — see routeLearned below. Callers pass the
+    // installed defs in opts; without them this stays a no-op.
+    if (opts && opts.learnedDefs && opts.learnedDefs.length){
+      var lr = routeLearned(t, opts.learnedDefs, opts.learnedMatcher);
+      if (lr.mode === "tool-only") return lr;
+    }
     return { mode: "chat" };
+  }
+
+  /* ------------------------------------------------------------
+     2b. routeLearned(text, defs, matcher) — v0.19.2.
+
+     Why this exists (2026-10-20): Andrew invoked his installed tool
+     by name — "D20roll." — and because nothing matched learned tools
+     before generation, the turn fell into full Slow generation and
+     died on a prompt overflow (2305 tokens). A learned tool is
+     deterministic, data-only, and already approved: it must fire
+     instantly, with NO brain — even if the brain engine is down.
+
+     Matching, in order:
+       1. trigger regex (ZenoToolProposals.matchLearned) — the
+          primary path; it also captures the groups the tool's
+          templates substitute from.
+       2. the tool's NAME as a whole word ("D20roll.", "use
+          d20roll") — naming an installed tool IS invoking it. If
+          the trigger then can't run on that text, the page answers
+          with learnedGuidance() instead of the brain.
+     matcher is injectable for tests; the default uses the real
+     ZenoToolProposals matcher when present.
+     ------------------------------------------------------------ */
+  function defaultLearnedMatcher(def, text){
+    try { return !!(root.ZenoToolProposals && root.ZenoToolProposals.matchLearned(def, text)); }
+    catch (e){ return false; }
+  }
+
+  function containsWord(hay, needle){
+    var idx = hay.indexOf(needle);
+    while (idx !== -1){
+      var before = idx === 0 ? "" : hay.charAt(idx - 1);
+      var after = idx + needle.length >= hay.length ? "" : hay.charAt(idx + needle.length);
+      if (!/[a-z0-9_]/.test(before) && !/[a-z0-9_]/.test(after)) return true;
+      idx = hay.indexOf(needle, idx + 1);
+    }
+    return false;
+  }
+
+  function routeLearned(text, defs, matcher){
+    var t = String(text || "").trim();
+    if (!t || !defs || !defs.length) return { mode: "chat" };
+    var match = typeof matcher === "function" ? matcher : defaultLearnedMatcher;
+    var i, def;
+    for (i = 0; i < defs.length; i++){
+      def = defs[i];
+      var hit = false;
+      try { hit = !!match(def, t); } catch (e){ hit = false; }
+      if (hit) return { mode: "tool-only", learned: def, via: "trigger" };
+    }
+    var low = t.toLowerCase();
+    for (i = 0; i < defs.length; i++){
+      def = defs[i];
+      var name = String(def.name || "").toLowerCase();
+      if (name.length >= 3 && containsWord(low, name)){
+        return { mode: "tool-only", learned: def, via: "name" };
+      }
+    }
+    return { mode: "chat" };
+  }
+
+  /* What the page says when a tool was invoked by name but its
+     trigger needs the pattern form to actually run. */
+  function learnedGuidance(def){
+    return "That's my learned tool \"" + def.name + "\" — it kicks in when you say things " +
+      "matching " + def.trigger + ". Try it in that shape and it fires instantly.";
   }
 
   /* Human-readable summary for the yes/no confirmation prompt. */
@@ -192,10 +265,12 @@
     PERMISSIONS: PERMISSIONS,
     permissionOf: permissionOf,
     route: route,
+    routeLearned: routeLearned,
+    learnedGuidance: learnedGuidance,
     describeConfirm: describeConfirm,
     agentLoop: agentLoop,
     MAX_TOOL_CALLS: MAX_TOOL_CALLS,
-    VERSION: "toolrouter-20261014"
+    VERSION: "toolrouter-20261020"
   };
 
   root.ZenoToolRouter = api;

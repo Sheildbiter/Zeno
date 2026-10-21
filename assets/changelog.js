@@ -7,7 +7,7 @@
  */
 "use strict";
 
-const ZENO_VERSION = "0.19.1";
+const ZENO_VERSION = "0.19.2";
 
 const ZENO_CHANGELOG = [
   {
@@ -314,6 +314,22 @@ const ZENO_CHANGELOG = [
     abilities: [
       "\"you should learn to X\" always runs on the bigger brain",
       "Prompt-size guard: I check the fit before generating, and trim old chat history instead of erroring"
+    ]
+  },
+  {
+    version: "0.19.2",
+    date: "2026-10-20",
+    headline: "Learned tools fire instantly, my prompts are measured for real, and my errors explain themselves",
+    whatsNew: [
+      "Tools I've learned — like the dice roller you approved — now fire the moment you name them or use their trigger, even before my brain wakes up. Rolling a die never needed my whole brain, and now it doesn't use it.",
+      "Honest fix: my old prompt-size guard guessed with a rough character count, and twice on Oct 20 the guess was wrong — my instructions overflowed my 2048-token window and you got a scary raw error. Now my prompts are measured with counts calibrated against my brains' real tokenizers, and trimmed oldest-first — old chat, then older memories — until they fit. That error is designed out, not just patched.",
+      "When my brain can't start, I now tell you the fix in plain words — close your other tabs, fully quit Safari, reopen only me, tap Initialize, restart the iPad if it persists — instead of the raw graphics-chip error text.",
+      "My version number now lives in exactly one place, so the page title, the header, and this changelog can't disagree with each other again."
+    ],
+    abilities: [
+      "Learned tools answer instantly by name or trigger — no brain warmup, works even if my brain is down",
+      "Prompt guard with calibrated token counting: trims oldest-first and answers instead of throwing raw errors",
+      "Plain-words brain errors with the actual fix steps"
     ]
   }
 ];

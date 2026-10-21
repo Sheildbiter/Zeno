@@ -1,7 +1,7 @@
 {
   "background_color": "#071018",
   "display": "standalone",
-  "name": "Zeno Brain v0.19.1",
+  "name": "Zeno Brain",
   "short_name": "Zeno",
   "start_url": "../",
   "scope": "../",
