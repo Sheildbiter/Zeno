@@ -60,6 +60,7 @@
 <script src="assets/zeno-fixguard.js"></script>
 <script src="assets/zeno-toolproposals.js"></script>
 <script src="assets/zeno-promptbudget.js"></script>
+<script src="assets/zeno-selfreview.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}
@@ -3032,6 +3033,8 @@ async function ensureBrain(tier){
       setStatus(friendly ? friendly.status : "Initialization failed");
       progress.textContent = friendly ? friendly.text :
         "Something went wrong waking my brain — make sure Wi-Fi is on for the first download, close your other tabs, then tap Initialize Brain again.";
+      // Self-review (Trick 5): collect the init failure, measured, for the morning pass.
+      try{ if (window.ZenoSelfReview) window.ZenoSelfReview.logError(window.ZenoSelfReview.classifyError(err)); }catch(e){}
     }
     init.disabled = false;
     throw err;
@@ -4139,6 +4142,10 @@ async function generate(){
   // v0.13: name mapping — "xeno"/"zino"/"zulu"/... always arrive as "Zeno".
   var text = rawText;
   try { if (window.ZenoLiveChat2) text = window.ZenoLiveChat2.ZenoName.normalize(rawText).text; } catch(e){}
+  // Self-review (Trick 5): collect Andrew's corrections for the morning
+  // pass. Narrow pattern only; a false positive only adds a log entry.
+  try{ if (window.ZenoSelfReview && window.ZenoSelfReview.looksLikeCorrection(text))
+    window.ZenoSelfReview.logCorrection(text.slice(0, 200), "(stated in the message)"); }catch(e){}
   ZenoVoice._carryText = ""; // consumed — nothing left to carry
 
   const command = BrainRouter.command(text);
@@ -4321,6 +4328,8 @@ async function generate(){
     // The raw error goes to the console for debugging, never to Andrew.
     const friendly = friendlyBrainError(err);
     if (!friendly) console.warn("Zeno generation error:", err);
+    // Self-review (Trick 5): collect the failure, measured, for the morning pass.
+    try{ if (window.ZenoSelfReview) window.ZenoSelfReview.logError(window.ZenoSelfReview.classifyError(err)); }catch(e){}
     add("zeno", friendly ? friendly.text :
       "Something glitched in my brain — try that again, and if it keeps happening, close your other Safari tabs and tap Initialize Brain.",
       null, { error: true });
@@ -5022,6 +5031,30 @@ setTimeout(() => {
     if (ann){ add("zeno", ann); ZenoChangelog.markSeen(); }
   }catch(e){ /* changelog never breaks boot */ }
 }, 800);
+// Self-review (Trick 5, v0.19.2+): one morning card, as a chat message.
+// Runs at first open of the day only — never while Andrew is chatting.
+// v0.19.2 has no overnight/dream cycle, so the pass runs here, at open,
+// gated on no open conversation, and hands the engine back to the normal
+// tier flow afterwards. Guarded so it can never break boot; a failed
+// pass leaves no half-written card and live chat is unaffected.
+async function maybeMorningSelfReview(){
+  try{
+    if (typeof ZenoSelfReview === "undefined") return;
+    const gate = ZenoSelfReview.shouldRunMorningPass({ generating: generating, conversation: ZenoPrime.conversation });
+    if (!gate.run) return;
+    const res = await ZenoSelfReview.runMorningPass({
+      generate: async (tier, prompt) => {
+        // One hot model at a time: ensureBrain unloads the current tier.
+        await ensureBrain(tier);
+        const reply = await WebLLMBrainRuntime._complete(
+          [{ role: "system", content: prompt }], { temperature: 0.3, max_tokens: 400 });
+        return reply || "";
+      }
+    });
+    if (res.card) add("zeno", ZenoSelfReview.formatCardMessage(res.card), "Self-review · this morning", { brain: "Self-review" });
+  }catch(e){ /* morning pass never breaks boot */ }
+}
+setTimeout(maybeMorningSelfReview, 1500);
 // Reminder ticker (workstream 1): persisted timers fire even after reload.
 setInterval(checkReminders, 10e3);
 setTimeout(() => {
